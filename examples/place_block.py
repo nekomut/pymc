@@ -3,7 +3,7 @@
 BDS に直接接続し、/setblock コマンドでブロックを配置する。
 mc/samples/golang/blockplacer2 の Python 移植版。
 
-初回のみ BDS コンソールで /op bot を実行すること。
+初回のみ BDS コンソールで /op b を実行すること。
 
 Usage:
     python examples/place_block.py --address 192.168.1.28:19132
@@ -22,8 +22,6 @@ from pymc.proto.packet.command_request import CommandOrigin, CommandRequest, ORI
 from pymc.proto.packet.network_stack_latency import NetworkStackLatency
 
 logger = logging.getLogger(__name__)
-
-WAIT_TIME = 30  # seconds
 
 
 async def main(address: str) -> None:
@@ -45,7 +43,7 @@ async def main(address: str) -> None:
 
     dialer = Dialer(
         identity_data=IdentityData(
-            display_name="bot",
+            display_name="b",
             identity="b1e3a2f4-5c6d-7e8f-9a0b-1c2d3e4f5a6b",
             xuid="1000000000000000",
         ),
@@ -54,8 +52,7 @@ async def main(address: str) -> None:
 
     conn = await dialer.dial(address)
     logger.info("スポーン完了!")
-    logger.info("初回のみ BDS コンソールで /op bot を実行してください")
-    logger.info("%d秒後にブロック配置を開始します...", WAIT_TIME)
+    logger.info("BDS コンソールで /op b を実行してから、Enterキーを押してください")
 
     # パケット読み取りタスク（接続維持 + コマンド結果表示）
     async def read_packets() -> None:
@@ -82,13 +79,10 @@ async def main(address: str) -> None:
     read_task = asyncio.create_task(read_packets())
 
     try:
-        await asyncio.sleep(WAIT_TIME)
+        await asyncio.to_thread(input, "")
 
-        logger.info("=== ブロック配置開始 (Y=70〜80) ===")
-        for y in range(70, 81):
-            cmd = f"/setblock 0 {y} 0 stone"
-            logger.info("[配置] %s", cmd)
-
+        async def run_cmd(cmd: str) -> None:
+            logger.info("[実行] %s", cmd)
             await conn.write_packet(
                 CommandRequest(
                     command_line=cmd,
@@ -100,7 +94,15 @@ async def main(address: str) -> None:
             await conn.flush()
             await asyncio.sleep(0.2)
 
-        logger.info("=== ブロック配置完了! ===")
+        logger.info("=== stone 配置 (Y=70〜80) ===")
+        for y in range(70, 81):
+            await run_cmd(f"/setblock 0 {y} 0 stone")
+
+        logger.info("=== air 配置 (Y=80〜70) ===")
+        for y in range(80, 69, -1):
+            await run_cmd(f"/setblock 0 {y} 0 air")
+
+        logger.info("=== 完了! ===")
 
         # コマンド応答を待つ
         await asyncio.sleep(5)
