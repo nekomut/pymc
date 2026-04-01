@@ -8,7 +8,7 @@ BDS に直接接続し、基盤地図情報 DEM5A から生成した地形を配
 
 地形データ:
   - 原点: (36.104665°N, 140.087099°E) → MC座標 (0, 0, 0)
-  - 解像度: 1m/ブロック (5m DEM を cubic spline で補間)
+  - 解像度: 0.75m/ブロック (5m DEM を cubic spline で補間)
   - 基準標高: 16m (= Y=0)
   - MC座標: X+=東, Z+=南, Y+=上
 
@@ -40,8 +40,9 @@ BUILDINGMAP_CSV = os.path.join(os.path.dirname(__file__), "buildingmap.csv")
 PROGRESS_FILE = os.path.join(os.path.dirname(__file__), "heightmap.progress")
 BUILDING_PROGRESS_FILE = os.path.join(os.path.dirname(__file__), "building.progress")
 BUILDING_BLOCK_TYPE = "quartz_block"
-BUILDING_HEIGHT = 5
-CLEAR_HEIGHT = 150
+SCALE = 0.75  # メートル/ブロック — plot_dem3d.py と一致させること
+BUILDING_HEIGHT = int(round(5.0 / SCALE))   # 物理5m → 7ブロック
+CLEAR_HEIGHT = int(round(150.0 / SCALE))    # 物理150m → 200ブロック
 
 # サーフェスタイプ → ブロック種別
 SURFACE_BLOCKS = {
@@ -191,38 +192,64 @@ async def bot_worker(
         for i, z in enumerate(rows):
             mc_z = z + z_offset
             if phase == "terrain":
-                # 地形配置 + 上空クリアを1パスで実行
+                # heightmap は半ブロック単位。h=フルブロック高, slab=上にハーフブロック
                 await run_cmd(f"/tp {name} {x_offset} {CLEAR_HEIGHT} {mc_z}")
                 for x in range(size_x):
-                    h = heightmap[z][x]
+                    h_half = heightmap[z][x]
                     mc_x = x + x_offset
-                    if h >= 0:
+                    if h_half >= 0:
+                        h = h_half // 2       # フルブロック高
+                        slab = h_half % 2     # 1ならスラブあり
+                        # 水域はスラブ不要
+                        if block_at(z, x) == "water":
+                            slab = 0
+                        top = h + slab        # 最上位の Y 座標
                         block = block_at(z, x)
-                        await run_cmd(f"/tp {name} {mc_x} {h + 5} {mc_z}")
-                        if block == "water" and h >= 5:
-                            # 水域: 上2ブロック=air, 3~5=water, 6以下=草地
-                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 5} {mc_z} grass_block")
+                        await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z}")
+                        if block == "water" and h >= 7:
+                            # 水域: 上2=air, 3~5=water, 6~7=grass_block, 8以下=stone
+                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 7} {mc_z} stone")
+                            await run_cmd(f"/fill {mc_x} {h - 6} {mc_z} {mc_x} {h - 5} {mc_z} grass_block")
                             await run_cmd(f"/fill {mc_x} {h - 4} {mc_z} {mc_x} {h - 2} {mc_z} water")
                             await run_cmd(f"/fill {mc_x} {h - 1} {mc_z} {mc_x} {h} {mc_z} air")
-                        elif block == "stone" and h >= 3:
-                            # 道路: 上3ブロック=stone, 4以下=草地
-                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 3} {mc_z} grass_block")
+                        elif block == "stone" and h >= 5:
+                            # 道路: 上3=stone, 4~5=grass_block, 6以下=stone
+                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 5} {mc_z} stone")
+                            await run_cmd(f"/fill {mc_x} {h - 4} {mc_z} {mc_x} {h - 3} {mc_z} grass_block")
                             await run_cmd(f"/fill {mc_x} {h - 2} {mc_z} {mc_x} {h} {mc_z} stone")
+                        elif block == "grass_block" and h >= 4:
+                            # 草地: 上4=grass_block, 5以下=stone
+                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 4} {mc_z} stone")
+                            await run_cmd(f"/fill {mc_x} {h - 3} {mc_z} {mc_x} {h} {mc_z} grass_block")
                         else:
                             await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h} {mc_z} {block}")
-                        if h + 1 <= CLEAR_HEIGHT:
-                            await run_cmd(f"/fill {mc_x} {h + 1} {mc_z} {mc_x} {CLEAR_HEIGHT} {mc_z} air")
+                        # ハーフブロック配置
+                        if slab and block == "grass_block":
+                            await run_cmd(
+                                f"/setblock {mc_x} {h + 1} {mc_z} mossy_cobblestone_slab"
+                            )
+                        elif slab and block == "stone":
+                            await run_cmd(
+                                f"/setblock {mc_x} {h + 1} {mc_z} normal_stone_slab"
+                            )
+                        # 上空クリア
+                        clear_from = top + 1
+                        if clear_from <= CLEAR_HEIGHT:
+                            await run_cmd(f"/fill {mc_x} {clear_from} {mc_z} {mc_x} {CLEAR_HEIGHT} {mc_z} air")
             elif phase == "building" and buildingmap is not None:
-                # 建物配置
-                await run_cmd(f"/tp {name} {x_offset} {heightmap[z][0] + BUILDING_HEIGHT + 5} {mc_z}")
+                # 建物配置（heightmap は半ブロック単位）
+                h0 = (heightmap[z][0] // 2) + (heightmap[z][0] % 2)
+                await run_cmd(f"/tp {name} {x_offset} {h0 + BUILDING_HEIGHT + 5} {mc_z}")
                 for x in range(size_x):
                     if buildingmap[z][x] == 1:
-                        h = heightmap[z][x]
+                        h_half = heightmap[z][x]
                         mc_x = x + x_offset
-                        if h >= 0:
+                        if h_half >= 0:
+                            h = (h_half // 2) + (h_half % 2)  # スラブ込みの最上位Y
                             y_bottom = h + 1
                             y_top = h + BUILDING_HEIGHT
                             await run_cmd(f"/tp {name} {mc_x} {y_top + 5} {mc_z}")
+                            await run_cmd(f"/setblock {mc_x} {h} {mc_z} stone")
                             await run_cmd(
                                 f"/fill {mc_x} {y_bottom} {mc_z} {mc_x} {y_top} {mc_z} {BUILDING_BLOCK_TYPE}"
                             )
