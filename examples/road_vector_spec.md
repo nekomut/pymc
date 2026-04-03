@@ -189,7 +189,7 @@ place_block.py
   7=lit_pumpkin, 8=sea_lantern
 - ソース:
   - 道路面充填: 22xx で区切られた領域のうち 270x を含む側（通常道路のみ）
-  - ftCode 別ライン描画で背景（値7）を上書き
+  - ftCode 別ライン描画で背景（値3）を上書き
 
 ### ftCode → ブロック対応
 
@@ -197,11 +197,11 @@ place_block.py
 |----|-----------------------|-----------------|----------------|
 | 1  | redstone_block        | 22xx (2201等)   | 道路中心線     |
 | 2  | glowstone             | 270x            | 通常道路縁線   |
-| 3  | redstone_lamp         | 222x            | 道路中心線亜種 |
+| 3  | redstone_lamp         | (充填面)        | 領域補填       |
 | 4  | pearlescent_froglight | 271x            | 庭園路         |
 | 5  | verdant_froglight     | 272x            | 徒歩道         |
 | 6  | ochre_froglight       | 273x            | 石段           |
-| 7  | lit_pumpkin           | (充填面)        | 領域補填       |
+| 7  | lit_pumpkin           | 222x            | 道路中心線亜種 |
 | 8  | sea_lantern           | 24xx            | トンネル内道路 |
 
 ### place_block.py での配置ロジック

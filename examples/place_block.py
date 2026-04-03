@@ -337,7 +337,7 @@ async def bot_worker(
                         top = h + slab
                     block = {1: "redstone_block", 2: "glowstone", 3: "redstone_lamp",
                              4: "pearlescent_froglight", 5: "verdant_froglight",
-                             6: "ochre_froglight", 7: "lit_pumpkin",
+                             6: "ochre_froglight", 7: "lit_pumpkin",  # 222x
                              8: "sea_lantern"}.get(cv, "redstone_block")
                     await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z}")
                     await run_cmd(f"/setblock {mc_x} {top} {mc_z} {block}")

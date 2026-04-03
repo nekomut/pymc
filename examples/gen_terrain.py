@@ -543,13 +543,13 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
             dbg_nbr = convolve(filled.astype(np.int8), dbg_kernel, mode='constant')
             filled |= ~filled & (dbg_nbr >= 3) & dbg_normal_area
 
-        # 背景として lit_pumpkin (値7) を設定
+        # 背景として redstone_lamp (値3) を設定
         # 0=なし, 1=redstone_block(22xx), 2=glowstone(270x),
-        # 3=redstone_lamp(222x), 4=pearlescent_froglight(271x),
+        # 3=redstone_lamp(充填面), 4=pearlescent_froglight(271x),
         # 5=verdant_froglight(272x), 6=ochre_froglight(273x),
-        # 7=lit_pumpkin(充填面), 8=sea_lantern(24xx)
+        # 7=lit_pumpkin(222x), 8=sea_lantern(24xx)
         center_val = np.zeros(shape, dtype=np.int8)
-        center_val[filled] = 7
+        center_val[filled] = 3
 
         # ftCode 別ライン描画（背景を上書き）
         ft_counts: dict[int, int] = {}
@@ -563,7 +563,7 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
             elif 2730 <= ft_code < 2740:
                 v = 6
             elif 2220 <= ft_code < 2230:
-                v = 3
+                v = 7
             elif 2400 <= ft_code < 2500:
                 v = 8
             elif 2200 <= ft_code < 2300:
