@@ -48,9 +48,9 @@ VECTOR_URL = "https://cyberjapandata.gsi.go.jp/xyz/experimental_bvmap/{z}/{x}/{y
 
 # 道路縁の ftCode（Voronoi 法で面を復元）
 # 2701=真幅道路, 2703/2704=亜種, 2711=軽車道, 2721=徒歩道, 2723=亜種, 2731=庭園路等
-ROAD_EDGE_CODES = {2701, 2703, 2704, 2711, 2721, 2723, 2731}
+ROAD_EDGE_CODES = {2701, 2703, 2704, 2711, 2713, 2721, 2723, 2731, 2733}
 # z=16 の ftCode 22xx は名目上「中心線」だが実際は縁線の近くを走る → 追加縁線として扱う
-ROAD_EXTRA_EDGE_CODES = {2201, 2221}
+ROAD_EXTRA_EDGE_CODES = {2201, 2203, 2221}
 
 # ---------------------------------------------------------------------------
 # タイル座標ヘルパー
@@ -72,17 +72,35 @@ def tile_to_latlon(tx: int, ty: int, z: int) -> tuple[float, float]:
     return lat, lon
 
 
+CACHE_DIR = os.path.join(os.path.dirname(__file__), ".tile_cache")
+
+
 def fetch_url(url: str) -> bytes | None:
+    # ファイルキャッシュ
+    cache_key = url.replace("https://", "").replace("http://", "").replace("/", "_")
+    cache_path = os.path.join(CACHE_DIR, cache_key)
+    if os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            data = f.read()
+        return data if data else None
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read()
+            data = resp.read()
     except urllib.error.HTTPError as e:
         if e.code == 404:
+            # 404 もキャッシュ（空ファイル）
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            with open(cache_path, "wb") as f:
+                pass
             return None
         raise
     except Exception:
         return None
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(cache_path, "wb") as f:
+        f.write(data)
+    return data
 
 # ---------------------------------------------------------------------------
 # DEM タイル
@@ -316,11 +334,11 @@ def fetch_vectors(origin_lat: float, origin_lon: float,
             return [p[0] for p in geom["coordinates"]]
         return []
 
-    # z=15: 道路縁線
+    # z=15: 道路線（27xx/22xx すべて取得、Voronoi は Pass 1/2 でフィルタ）
     for layer_name, geom, props in feats_z15:
         if layer_name == "road":
             ft = props.get("ftCode", 0)
-            if ft not in ROAD_EDGE_CODES:
+            if not (2200 <= ft < 2300 or 2400 <= ft < 2500 or 2700 <= ft < 2800):
                 continue
             for line in extract_lines(geom):
                 road_lines.append((line, ft))
@@ -331,12 +349,11 @@ def fetch_vectors(origin_lat: float, origin_lon: float,
 
     z15_count = len(road_lines)
 
-    # z=16: 追加縁線（22xx=名目上中心線だが実質縁線 + 27xx=縁線）
-    z16_valid = ROAD_EDGE_CODES | ROAD_EXTRA_EDGE_CODES
+    # z=16: 追加道路線（27xx/22xx すべて取得）
     for layer_name, geom, props in feats_z16:
         if layer_name == "road":
             ft = props.get("ftCode", 0)
-            if ft not in z16_valid:
+            if not (2200 <= ft < 2300 or 2400 <= ft < 2500 or 2700 <= ft < 2800):
                 continue
             for line in extract_lines(geom):
                 road_lines.append((line, ft))
@@ -458,7 +475,6 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
 
     # Pass 2: z=16 追加縁線（z=15 縁線の近傍にあるもののみ）
     # 同時に center_mask にもラスタライズ（debug 用中心線表示）
-    center_mask = np.zeros(shape, dtype=bool)
     z16_count = 0
     z16_skip = 0
     for mc_coords, ft_code in road_lines:
@@ -478,21 +494,6 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
             continue
         label_id += 1
         rasterize_line(mc_coords, label_id)
-        # center_mask にもラスタライズ
-        for k in range(len(mc_coords) - 1):
-            x0, z0 = mc_coords[k]
-            x1, z1 = mc_coords[k + 1]
-            ix0, iz0 = x0 - mc_x_start, z0 - mc_z_start
-            ix1, iz1 = x1 - mc_x_start, z1 - mc_z_start
-            seg_len = max(abs(ix1 - ix0), abs(iz1 - iz0))
-            if seg_len < 0.5:
-                continue
-            steps = int(seg_len * 2) + 1
-            for t in np.linspace(0, 1, steps):
-                cix = int(round(ix0 + t * (ix1 - ix0)))
-                ciz = int(round(iz0 + t * (iz1 - iz0)))
-                if 0 <= cix < nx and 0 <= ciz < ny:
-                    center_mask[ciz, cix] = True
         z16_count += 1
 
     print(f"  道路縁線: z15={z15_count}, z16={z16_count} 採用, "
@@ -585,13 +586,105 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
 
     bridgemap = bridge_mask.astype(np.int8) if bridge_count > 0 else None
 
-    # 中心線マップ (debug 用): z=16 中心線は全て維持
+    # 中心線マップ (debug 用):
+    # 22xx = 道路縁線、27xx が存在する側 = 道路側 → 道路側の stone をレッドストーンに
     centerlinemap = None
     if debug:
-        road_or_bridge = (surface == SURFACE_ROAD) | bridge_mask
-        cl = center_mask & road_or_bridge
-        centerlinemap = cl.astype(np.int8)
-        print(f"中心線セル: {int(cl.sum())}/{ny * nx}")
+        def rasterize_to_mask(mc_coords, arr, val=True):
+            for k in range(len(mc_coords) - 1):
+                x0, z0 = mc_coords[k]
+                x1, z1 = mc_coords[k + 1]
+                ix0, iz0 = x0 - mc_x_start, z0 - mc_z_start
+                ix1, iz1 = x1 - mc_x_start, z1 - mc_z_start
+                seg_len = max(abs(ix1 - ix0), abs(iz1 - iz0))
+                if seg_len < 0.5:
+                    continue
+                steps = int(seg_len * 2) + 1
+                for t in np.linspace(0, 1, steps):
+                    ix = int(round(ix0 + t * (ix1 - ix0)))
+                    iz = int(round(iz0 + t * (iz1 - iz0)))
+                    if 0 <= ix < nx and 0 <= iz < ny:
+                        arr[iz, ix] = val
+
+        # --- 領域ラベリングで 22xx の 270x 側を道路面として充填 ---
+        # 22xx/24xx（道路縁線）
+        edge_22xx = np.zeros(shape, dtype=bool)
+        for mc_coords, ft_code in road_lines:
+            if 2200 <= ft_code < 2300 or 2400 <= ft_code < 2500:
+                rasterize_to_mask(mc_coords, edge_22xx, val=True)
+
+        # 270x のみ（通常道路）— 細い道 271x-273x は充填対象外
+        marker_270x = np.zeros(shape, dtype=bool)
+        for mc_coords, ft_code in road_lines:
+            if 2700 <= ft_code < 2710:
+                rasterize_to_mask(mc_coords, marker_270x, val=True)
+
+        # 22xx で区切られた領域をラベリング
+        regions, n_regions = ndimage_label(~edge_22xx)
+        # 270x が含まれる領域 = 道路側
+        road_region_ids = set(np.unique(regions[marker_270x]))
+        road_region_ids.discard(0)
+        road_side = np.isin(regions, list(road_region_ids)) if road_region_ids else np.zeros(shape, dtype=bool)
+        # 22xx からの距離で制限
+        dist_to_22 = distance_transform_edt(~edge_22xx)
+        filled = road_side & (dist_to_22 <= max_road_half_width)
+        filled |= edge_22xx & (dist_to_22 == 0)  # 22xx 自体も含める
+        filled |= marker_270x  # 270x 自体も含める
+
+        # --- 穴埋め（通常道路のみ、細い道 271x-273x は除外）---
+        from scipy.ndimage import convolve
+        kernel = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]], dtype=np.int8)
+        # 22xx間の1ブロック隙間埋め（4近傍に22xxが2つ以上）
+        edge_nbr = convolve(edge_22xx.astype(np.int8), kernel, mode='constant')
+        one_block_gap = ~edge_22xx & (edge_nbr >= 2)
+        # 270x 近傍のみ（細い道を除外）
+        dist_to_270 = distance_transform_edt(~marker_270x)
+        normal_road_area = dist_to_270 <= max_road_half_width
+        filled |= one_block_gap & normal_road_area
+        # 囲まれた1ブロック穴を3近傍で3回埋める
+        for _ in range(3):
+            rs_nbr = convolve(filled.astype(np.int8), kernel, mode='constant')
+            filled |= ~filled & (rs_nbr >= 3) & normal_road_area
+
+        # 背景として redstone_block (値1) を設定
+        # 0=なし, 1=redstone_block, 2=glowstone(270x),
+        # 3=redstone_lamp(222x), 4=pearlescent_froglight(271x),
+        # 5=verdant_froglight(272x), 6=ochre_froglight(273x), 7=lit_pumpkin(24xx)
+        center_val = np.zeros(shape, dtype=np.int8)
+        center_val[filled] = 1
+
+        # ftCode 別ライン描画（背景を上書き）
+        ft_counts: dict[int, int] = {}
+        for mc_coords, ft_code in road_lines:
+            if 2700 <= ft_code < 2710:
+                v = 2
+            elif 2710 <= ft_code < 2720:
+                v = 4
+            elif 2720 <= ft_code < 2730:
+                v = 5
+            elif 2730 <= ft_code < 2740:
+                v = 6
+            elif 2220 <= ft_code < 2230:
+                v = 3
+            elif 2400 <= ft_code < 2500:
+                v = 7
+            elif 2200 <= ft_code < 2300:
+                v = 1
+            else:
+                continue
+            before = int((center_val == v).sum())
+            rasterize_to_mask(mc_coords, center_val, val=v)
+            ft_counts[ft_code] = ft_counts.get(ft_code, 0) + int((center_val == v).sum()) - before
+        centerlinemap = center_val
+        fill_count = int(filled.sum())
+        total = int((center_val > 0).sum())
+        print(f"debug道路セル: {total}/{ny * nx} "
+              f"(fill: {fill_count}, "
+              f"redstone: {int((center_val == 1).sum())}, "
+              f"glowstone: {int((center_val == 2).sum())}, "
+              f"lamp: {int((center_val == 3).sum())})")
+        for ft, cnt in sorted(ft_counts.items()):
+            print(f"  ftCode {ft}: {cnt} セル")
 
     return surface, buildingmap, bridgemap, centerlinemap
 

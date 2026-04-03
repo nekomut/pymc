@@ -281,14 +281,11 @@ async def bot_worker(
                         if slab:
                             await run_cmd(f"/setblock {mc_x} {h + 1} {mc_z} normal_stone_slab")
             elif phase == "centerline" and centerlinemap is not None:
-                # レッドストーンブロック配置（道路・橋の最上面）
+                # まず既存のレッドストーンを stone に置換、その後新しいレッドストーンを配置
                 h0 = (heightmap[z][0] // 2) + (heightmap[z][0] % 2)
                 await run_cmd(f"/tp {name} {x_offset} {h0 + 5} {mc_z}")
                 for x in range(size_x):
-                    if centerlinemap[z][x] != 1:
-                        continue
                     mc_x = x + x_offset
-                    # 橋面があればその高さ、なければ地形の高さ
                     if bridgemap is not None and bridgemap[z][x] > 0:
                         bh = bridgemap[z][x]
                         top = (bh // 2) + (bh % 2)
@@ -299,11 +296,38 @@ async def bot_worker(
                         h = h_half // 2
                         slab = h_half % 2
                         top = h + slab
+                    for db in ("redstone_block", "glowstone", "redstone_lamp",
+                              "pearlescent_froglight", "verdant_froglight",
+                              "ochre_froglight", "lit_pumpkin"):
+                        await run_cmd(
+                            f"/execute positioned {mc_x} {top} {mc_z} "
+                            f"run fill {mc_x} {top} {mc_z} {mc_x} {top} {mc_z} stone replace {db}")
+                # レッドストーン / グロウストーン配置
+                for x in range(size_x):
+                    cv = centerlinemap[z][x]
+                    if cv == 0:
+                        continue
+                    mc_x = x + x_offset
+                    if bridgemap is not None and bridgemap[z][x] > 0:
+                        bh = bridgemap[z][x]
+                        top = (bh // 2) + (bh % 2)
+                    else:
+                        h_half = heightmap[z][x]
+                        if h_half < 0:
+                            continue
+                        h = h_half // 2
+                        slab = h_half % 2
+                        top = h + slab
+                    block = {1: "redstone_block", 2: "glowstone", 3: "redstone_lamp",
+                             4: "pearlescent_froglight", 5: "verdant_froglight",
+                             6: "ochre_froglight", 7: "lit_pumpkin"}.get(cv, "redstone_block")
                     await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z}")
-                    await run_cmd(f"/setblock {mc_x} {top} {mc_z} redstone_block")
+                    await run_cmd(f"/setblock {mc_x} {top} {mc_z} {block}")
+                    await run_cmd(f"/fill {mc_x} {top + 1} {mc_z} {mc_x} {top + 5} {mc_z} air")
             save_progress_line(progress_file, z)
             stats["done_rows"] += 1
-            log.info("  [%s] 行完了: z=%d (%d/%d) %d cmd", phase, z, i + 1, len(rows), cmd_count)
+            log.info("  [%s] 行完了: z=%d (mc: x=%d~%d, z=%d) (%d/%d) %d cmd",
+                     phase, z, x_offset, x_offset + size_x - 1, mc_z, i + 1, len(rows), cmd_count)
 
         stats["cmd_total"] += cmd_count
         log.info("[%s] 担当完了! %d 行, %d コマンド", phase, len(rows), cmd_count)
@@ -316,7 +340,7 @@ async def bot_worker(
         await conn.close()
 
 
-async def main(address: str, num_bots: int, *, reset: bool = False, no_building: bool = False) -> None:
+async def main(address: str, num_bots: int, *, reset: bool = False, no_building: bool = False, only_centerline: bool = False) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -369,28 +393,29 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_building:
 
     phases = []
 
-    terrain_done = load_progress(PROGRESS_FILE) if not reset else set()
-    terrain_remaining = [z for z in range(size_z) if z not in terrain_done]
-    if terrain_remaining:
-        phases.append(("terrain", terrain_remaining, PROGRESS_FILE))
-    else:
-        logger.info("地形: 全行配置済み")
-
-    if buildingmap and not no_building:
-        building_done = load_progress(BUILDING_PROGRESS_FILE) if not reset else set()
-        building_remaining = [z for z in range(size_z) if z not in building_done]
-        if building_remaining:
-            phases.append(("building", building_remaining, BUILDING_PROGRESS_FILE))
+    if not only_centerline:
+        terrain_done = load_progress(PROGRESS_FILE) if not reset else set()
+        terrain_remaining = [z for z in range(size_z) if z not in terrain_done]
+        if terrain_remaining:
+            phases.append(("terrain", terrain_remaining, PROGRESS_FILE))
         else:
-            logger.info("建物: 全行配置済み")
+            logger.info("地形: 全行配置済み")
 
-    if bridgemap:
-        bridge_done = load_progress(BRIDGE_PROGRESS_FILE) if not reset else set()
-        bridge_remaining = [z for z in range(size_z) if z not in bridge_done]
-        if bridge_remaining:
-            phases.append(("bridge", bridge_remaining, BRIDGE_PROGRESS_FILE))
-        else:
-            logger.info("橋: 全行配置済み")
+        if buildingmap and not no_building:
+            building_done = load_progress(BUILDING_PROGRESS_FILE) if not reset else set()
+            building_remaining = [z for z in range(size_z) if z not in building_done]
+            if building_remaining:
+                phases.append(("building", building_remaining, BUILDING_PROGRESS_FILE))
+            else:
+                logger.info("建物: 全行配置済み")
+
+        if bridgemap:
+            bridge_done = load_progress(BRIDGE_PROGRESS_FILE) if not reset else set()
+            bridge_remaining = [z for z in range(size_z) if z not in bridge_done]
+            if bridge_remaining:
+                phases.append(("bridge", bridge_remaining, BRIDGE_PROGRESS_FILE))
+            else:
+                logger.info("橋: 全行配置済み")
 
     if centerlinemap:
         cl_done = load_progress(CENTERLINE_PROGRESS_FILE) if not reset else set()
@@ -474,5 +499,6 @@ if __name__ == "__main__":
     parser.add_argument("--bots", type=int, default=5, help="並列ボット数 (default: 5, max: 26)")
     parser.add_argument("--reset", action="store_true", help="進捗をリセットして最初からやり直す")
     parser.add_argument("--no-building", action="store_true", help="建物配置をスキップする")
+    parser.add_argument("--only-centerline", action="store_true", help="レッドストーン配置のみ実行する")
     args = parser.parse_args()
-    asyncio.run(main(args.address, args.bots, reset=args.reset, no_building=args.no_building))
+    asyncio.run(main(args.address, args.bots, reset=args.reset, no_building=args.no_building, only_centerline=args.only_centerline))
