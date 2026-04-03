@@ -358,7 +358,7 @@ async def bot_worker(
         await conn.close()
 
 
-async def main(address: str, num_bots: int, *, reset: bool = False, no_building: bool = False, only_centerline: bool = False) -> None:
+async def main(address: str, num_bots: int, *, reset: bool = False, no_road: bool = False, no_building: bool = False, only_road: bool = False, only_building: bool = False, only_centerline: bool = False) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -411,7 +411,9 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_building:
 
     phases = []
 
-    if not only_centerline:
+    has_only = only_road or only_building or only_centerline
+
+    if not has_only:
         terrain_done = load_progress(PROGRESS_FILE) if not reset else set()
         terrain_remaining = [z for z in range(size_z) if z not in terrain_done]
         if terrain_remaining:
@@ -419,6 +421,7 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_building:
         else:
             logger.info("地形: 全行配置済み")
 
+    if (not has_only or only_road) and not no_road:
         if surfacemap or bridgemap:
             road_done = load_progress(ROAD_PROGRESS_FILE) if not reset else set()
             road_remaining = [z for z in range(size_z) if z not in road_done]
@@ -427,7 +430,8 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_building:
             else:
                 logger.info("道路・橋: 全行配置済み")
 
-        if buildingmap and not no_building:
+    if (not has_only or only_building) and not no_building:
+        if buildingmap:
             building_done = load_progress(BUILDING_PROGRESS_FILE) if not reset else set()
             building_remaining = [z for z in range(size_z) if z not in building_done]
             if building_remaining:
@@ -435,7 +439,7 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_building:
             else:
                 logger.info("建物: 全行配置済み")
 
-    if centerlinemap:
+    if (not has_only or only_centerline) and centerlinemap:
         cl_done = load_progress(CENTERLINE_PROGRESS_FILE) if not reset else set()
         cl_remaining = [z for z in range(size_z) if z not in cl_done]
         if cl_remaining:
@@ -516,7 +520,10 @@ if __name__ == "__main__":
     parser.add_argument("--address", default="192.168.1.24:19132")
     parser.add_argument("--bots", type=int, default=5, help="並列ボット数 (default: 5, max: 26)")
     parser.add_argument("--reset", action="store_true", help="進捗をリセットして最初からやり直す")
+    parser.add_argument("--no-road", action="store_true", help="道路・橋配置をスキップする")
     parser.add_argument("--no-building", action="store_true", help="建物配置をスキップする")
+    parser.add_argument("--only-road", action="store_true", help="道路・橋配置のみ実行する")
+    parser.add_argument("--only-building", action="store_true", help="建物配置のみ実行する")
     parser.add_argument("--only-centerline", action="store_true", help="レッドストーン配置のみ実行する")
     args = parser.parse_args()
-    asyncio.run(main(args.address, args.bots, reset=args.reset, no_building=args.no_building, only_centerline=args.only_centerline))
+    asyncio.run(main(args.address, args.bots, reset=args.reset, no_road=args.no_road, no_building=args.no_building, only_road=args.only_road, only_building=args.only_building, only_centerline=args.only_centerline))
