@@ -401,14 +401,6 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_building:
         else:
             logger.info("地形: 全行配置済み")
 
-        if buildingmap and not no_building:
-            building_done = load_progress(BUILDING_PROGRESS_FILE) if not reset else set()
-            building_remaining = [z for z in range(size_z) if z not in building_done]
-            if building_remaining:
-                phases.append(("building", building_remaining, BUILDING_PROGRESS_FILE))
-            else:
-                logger.info("建物: 全行配置済み")
-
         if bridgemap:
             bridge_done = load_progress(BRIDGE_PROGRESS_FILE) if not reset else set()
             bridge_remaining = [z for z in range(size_z) if z not in bridge_done]
@@ -416,6 +408,14 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_building:
                 phases.append(("bridge", bridge_remaining, BRIDGE_PROGRESS_FILE))
             else:
                 logger.info("橋: 全行配置済み")
+
+        if buildingmap and not no_building:
+            building_done = load_progress(BUILDING_PROGRESS_FILE) if not reset else set()
+            building_remaining = [z for z in range(size_z) if z not in building_done]
+            if building_remaining:
+                phases.append(("building", building_remaining, BUILDING_PROGRESS_FILE))
+            else:
+                logger.info("建物: 全行配置済み")
 
     if centerlinemap:
         cl_done = load_progress(CENTERLINE_PROGRESS_FILE) if not reset else set()

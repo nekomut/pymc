@@ -429,17 +429,11 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
     else:
         print(f"建物セル: 0/{ny * nx}")
 
-    # --- 道路 (Voronoi 法) ---
-    # 1) z=15 縁線をまずラスタライズ
-    # 2) z=16 追加縁線は z=15 縁線の近傍にあるもののみ採用
-    #    (孤立した z=16 線が遠方の z=15 線と誤ペアリングするのを防ぐ)
-    label_map = np.zeros(shape, dtype=np.int32)
-    label_id = 0
+    # --- 道路 (領域ラベリング法) ---
     max_road_half_width = 5.0 / scale
 
-    def rasterize_line(mc_coords, lid):
-        """線分を label_map にラスタライズ。描画したピクセル数を返す."""
-        count = 0
+    def rasterize_to_mask(mc_coords, arr, val=True):
+        """線分を配列にラスタライズ."""
         for k in range(len(mc_coords) - 1):
             x0, z0 = mc_coords[k]
             x1, z1 = mc_coords[k + 1]
@@ -453,126 +447,84 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
                 ix = int(round(ix0 + t * (ix1 - ix0)))
                 iz = int(round(iz0 + t * (iz1 - iz0)))
                 if 0 <= ix < nx and 0 <= iz < ny:
-                    label_map[iz, ix] = lid
-                    count += 1
-        return count
+                    arr[iz, ix] = val
 
-    # Pass 1: z=15 縁線
-    z15_count = 0
+    # 22xx/24xx（道路中心線）と 270x（通常道路縁線）をラスタライズ
+    edge_22xx = np.zeros(shape, dtype=bool)
+    marker_270x = np.zeros(shape, dtype=bool)
+    all_road_lines = np.zeros(shape, dtype=bool)  # 全道路線（27xx 含む）
     for mc_coords, ft_code in road_lines:
-        if ft_code in ROAD_EXTRA_EDGE_CODES:
-            continue
-        label_id += 1
-        rasterize_line(mc_coords, label_id)
-        z15_count += 1
+        if 2200 <= ft_code < 2300 or 2400 <= ft_code < 2500:
+            rasterize_to_mask(mc_coords, edge_22xx, val=True)
+            rasterize_to_mask(mc_coords, all_road_lines, val=True)
+        elif 2700 <= ft_code < 2710:
+            rasterize_to_mask(mc_coords, marker_270x, val=True)
+            rasterize_to_mask(mc_coords, all_road_lines, val=True)
+        elif 2700 <= ft_code < 2800:
+            rasterize_to_mask(mc_coords, all_road_lines, val=True)
 
-    # z=15 縁線からの距離を計算
-    z15_edge = label_map > 0
-    if z15_edge.any():
-        z15_dist = distance_transform_edt(~z15_edge)
-    else:
-        z15_dist = np.full(shape, np.inf)
+    # 22xx + 270x をエッジとして領域分割し、両方に接する領域 = 道路面
+    from scipy.ndimage import binary_dilation, convolve
+    combined_edges = edge_22xx | marker_270x
+    struct = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
+    regions, n_regions = ndimage_label(~combined_edges, structure=struct)
+    dilated_22 = binary_dilation(edge_22xx, structure=struct)
+    dilated_270 = binary_dilation(marker_270x, structure=struct)
+    labels_near_22 = set(np.unique(regions[dilated_22 & (regions > 0)]))
+    labels_near_270 = set(np.unique(regions[dilated_270 & (regions > 0)]))
+    road_labels = labels_near_22 & labels_near_270
+    # 不適切な領域を除外:
+    # - 幅1以下: 22xx-270x が隣接する細い道
+    # - エッジで囲まれていない巨大領域: max_dist_to_edge > max_road_half_width * 2
+    dist_to_edge = distance_transform_edt(~combined_edges)
+    exclude_labels = set()
+    for rid in road_labels:
+        region_dist = dist_to_edge[regions == rid]
+        if region_dist.max() <= 1 or region_dist.max() > max_road_half_width * 2:
+            exclude_labels.add(rid)
+    road_labels -= exclude_labels
+    road_side = np.isin(regions, list(road_labels)) if road_labels else np.zeros(shape, dtype=bool)
+    # 22xx からの距離で制限
+    dist_to_22 = distance_transform_edt(~edge_22xx)
+    road_filled = road_side & (dist_to_22 <= max_road_half_width)
+    road_filled |= combined_edges
+    # 細い道（271x-273x）は線のみ道路扱い
+    road_filled |= all_road_lines
 
-    # Pass 2: z=16 追加縁線（z=15 縁線の近傍にあるもののみ）
-    # 同時に center_mask にもラスタライズ（debug 用中心線表示）
-    z16_count = 0
-    z16_skip = 0
-    for mc_coords, ft_code in road_lines:
-        if ft_code not in ROAD_EXTRA_EDGE_CODES:
-            continue
-        # この線の各頂点が z=15 縁線から近いか判定
-        close = False
-        for x, z in mc_coords:
-            ix = int(round(x - mc_x_start))
-            iz = int(round(z - mc_z_start))
-            if 0 <= ix < nx and 0 <= iz < ny:
-                if z15_dist[iz, ix] <= max_road_half_width:
-                    close = True
-                    break
-        if not close:
-            z16_skip += 1
-            continue
-        label_id += 1
-        rasterize_line(mc_coords, label_id)
-        z16_count += 1
+    # 穴埋め（通常道路近傍のみ）
+    dist_to_270 = distance_transform_edt(~marker_270x)
+    normal_road_area = dist_to_270 <= max_road_half_width
+    kernel = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]], dtype=np.int8)
+    edge_nbr = convolve(edge_22xx.astype(np.int8), kernel, mode='constant')
+    one_block_gap = ~edge_22xx & (edge_nbr >= 2)
+    road_filled |= one_block_gap & normal_road_area
+    for _ in range(3):
+        rs_nbr = convolve(road_filled.astype(np.int8), kernel, mode='constant')
+        road_filled |= ~road_filled & (rs_nbr >= 3) & normal_road_area
 
-    print(f"  道路縁線: z15={z15_count}, z16={z16_count} 採用, "
-          f"{z16_skip} 除外 (計 {label_id} ラベル)")
+    print(f"  道路縁線: 22xx={int(edge_22xx.sum())}, 270x={int(marker_270x.sum())}, "
+          f"領域: {len(road_labels)}/{n_regions}")
 
     # 除外マスク
     exclude = water_mask.copy()
     if buildingmap is not None:
         exclude |= buildingmap.astype(bool)
 
-    edge_mask = label_map > 0
+    # 橋 = 道路が水域を横断する箇所
     bridge_mask = np.zeros(shape, dtype=bool)
-    road_filled = np.zeros(shape, dtype=bool)
-    voronoi_bnd = np.zeros(shape, dtype=bool)
-
-    # Voronoi 法で縁線間を充填
-    if edge_mask.any():
-        dist1, idx1 = distance_transform_edt(
-            ~edge_mask, return_distances=True, return_indices=True)
-        nearest_label = label_map[idx1[0], idx1[1]]
-
-        for dz, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nz_ = np.clip(np.arange(ny)[:, None] + dz, 0, ny - 1)
-            nx_ = np.clip(np.arange(nx)[None, :] + dx, 0, nx - 1)
-            neighbor_label = nearest_label[nz_, nx_]
-            neighbor_dist = dist1[nz_, nx_]
-            diff = ((nearest_label != neighbor_label)
-                    & (nearest_label > 0) & (neighbor_label > 0)
-                    & (dist1 <= max_road_half_width)
-                    & (neighbor_dist <= max_road_half_width))
-            voronoi_bnd |= diff
-
-        road_filled = edge_mask.copy()
-        if voronoi_bnd.any():
-            dist_to_bnd, bnd_idx = distance_transform_edt(
-                ~voronoi_bnd, return_distances=True, return_indices=True)
-            local_half_width = dist1[bnd_idx[0], bnd_idx[1]]
-            local_half_width = np.minimum(local_half_width, max_road_half_width)
-            road_filled = ((dist1 + dist_to_bnd <= local_half_width + 1.5)
-                           & (dist1 <= max_road_half_width))
-            road_filled |= edge_mask
-
-            # --- 交差点充填（Voronoi 三重点検出）---
-            # 道路近傍で非道路のギャップを連結成分分析し、
-            # 3+ の異なるラベルが集まる領域を交差点として充填する
-            gap = (dist1 <= max_road_half_width * 2) & ~road_filled
-            gap_labeled, n_gap = ndimage_label(gap)
-            intersection_count = 0
-            for comp_id in range(1, n_gap + 1):
-                comp_mask = gap_labeled == comp_id
-                labels_in_comp = np.unique(nearest_label[comp_mask])
-                labels_in_comp = labels_in_comp[labels_in_comp > 0]
-                if len(labels_in_comp) >= 3:
-                    road_filled[comp_mask] = True
-                    intersection_count += 1
-            print(f"  交差点: {intersection_count} 箇所充填")
-
     if road_filled.any():
-        # 橋 = 道路が水域を横断する箇所
         bridge_seed = road_filled & water_mask
-        if bridge_seed.any() and edge_mask.any():
-            # 水岸の道路縁線から橋幅を決定する:
-            # 水域に隣接する陸上の道路セル（岸）の道路半幅を取得し、
-            # 橋の各セルに最寄りの岸の半幅を適用する。
-            shore_road = road_filled & ~water_mask  # 陸上の道路
+        if bridge_seed.any():
+            shore_road = road_filled & ~water_mask
             if shore_road.any():
-                # 各セルから最寄りの岸道路セルまでの距離・インデックス
                 shore_dist, shore_idx = distance_transform_edt(
                     ~shore_road, return_distances=True, return_indices=True)
-                # 岸道路セルでの dist1（最寄り縁線までの距離）= 道路半幅
-                shore_hw = dist1[shore_idx[0], shore_idx[1]]
+                shore_hw = dist_to_22[shore_idx[0], shore_idx[1]]
                 shore_hw = np.minimum(shore_hw, max_road_half_width)
-                # 橋の細い線から膨張（各セルの半幅は岸の道路幅に従う）
                 bridge_dist = distance_transform_edt(~bridge_seed)
                 bridge_mask = water_mask & (bridge_dist <= shore_hw)
             else:
                 bridge_mask = bridge_seed
-        else:
-            bridge_mask = bridge_seed if road_filled.any() else np.zeros(shape, dtype=bool)
         if buildingmap is not None:
             bridge_mask &= ~buildingmap.astype(bool)
         surface[road_filled & ~exclude] = SURFACE_ROAD
@@ -586,65 +538,10 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
 
     bridgemap = bridge_mask.astype(np.int8) if bridge_count > 0 else None
 
-    # 中心線マップ (debug 用):
-    # 22xx = 道路縁線、27xx が存在する側 = 道路側 → 道路側の stone をレッドストーンに
+    # 中心線マップ (debug 用)
     centerlinemap = None
     if debug:
-        def rasterize_to_mask(mc_coords, arr, val=True):
-            for k in range(len(mc_coords) - 1):
-                x0, z0 = mc_coords[k]
-                x1, z1 = mc_coords[k + 1]
-                ix0, iz0 = x0 - mc_x_start, z0 - mc_z_start
-                ix1, iz1 = x1 - mc_x_start, z1 - mc_z_start
-                seg_len = max(abs(ix1 - ix0), abs(iz1 - iz0))
-                if seg_len < 0.5:
-                    continue
-                steps = int(seg_len * 2) + 1
-                for t in np.linspace(0, 1, steps):
-                    ix = int(round(ix0 + t * (ix1 - ix0)))
-                    iz = int(round(iz0 + t * (iz1 - iz0)))
-                    if 0 <= ix < nx and 0 <= iz < ny:
-                        arr[iz, ix] = val
-
-        # --- 領域ラベリングで 22xx の 270x 側を道路面として充填 ---
-        # 22xx/24xx（道路縁線）
-        edge_22xx = np.zeros(shape, dtype=bool)
-        for mc_coords, ft_code in road_lines:
-            if 2200 <= ft_code < 2300 or 2400 <= ft_code < 2500:
-                rasterize_to_mask(mc_coords, edge_22xx, val=True)
-
-        # 270x のみ（通常道路）— 細い道 271x-273x は充填対象外
-        marker_270x = np.zeros(shape, dtype=bool)
-        for mc_coords, ft_code in road_lines:
-            if 2700 <= ft_code < 2710:
-                rasterize_to_mask(mc_coords, marker_270x, val=True)
-
-        # 22xx で区切られた領域をラベリング
-        regions, n_regions = ndimage_label(~edge_22xx)
-        # 270x が含まれる領域 = 道路側
-        road_region_ids = set(np.unique(regions[marker_270x]))
-        road_region_ids.discard(0)
-        road_side = np.isin(regions, list(road_region_ids)) if road_region_ids else np.zeros(shape, dtype=bool)
-        # 22xx からの距離で制限
-        dist_to_22 = distance_transform_edt(~edge_22xx)
-        filled = road_side & (dist_to_22 <= max_road_half_width)
-        filled |= edge_22xx & (dist_to_22 == 0)  # 22xx 自体も含める
-        filled |= marker_270x  # 270x 自体も含める
-
-        # --- 穴埋め（通常道路のみ、細い道 271x-273x は除外）---
-        from scipy.ndimage import convolve
-        kernel = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]], dtype=np.int8)
-        # 22xx間の1ブロック隙間埋め（4近傍に22xxが2つ以上）
-        edge_nbr = convolve(edge_22xx.astype(np.int8), kernel, mode='constant')
-        one_block_gap = ~edge_22xx & (edge_nbr >= 2)
-        # 270x 近傍のみ（細い道を除外）
-        dist_to_270 = distance_transform_edt(~marker_270x)
-        normal_road_area = dist_to_270 <= max_road_half_width
-        filled |= one_block_gap & normal_road_area
-        # 囲まれた1ブロック穴を3近傍で3回埋める
-        for _ in range(3):
-            rs_nbr = convolve(filled.astype(np.int8), kernel, mode='constant')
-            filled |= ~filled & (rs_nbr >= 3) & normal_road_area
+        filled = road_filled.copy()
 
         # 背景として redstone_block (値1) を設定
         # 0=なし, 1=redstone_block, 2=glowstone(270x),
