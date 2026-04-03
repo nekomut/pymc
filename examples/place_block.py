@@ -298,7 +298,7 @@ async def bot_worker(
                         top = h + slab
                     for db in ("redstone_block", "glowstone", "redstone_lamp",
                               "pearlescent_froglight", "verdant_froglight",
-                              "ochre_froglight", "lit_pumpkin"):
+                              "ochre_froglight", "lit_pumpkin", "sea_lantern"):
                         await run_cmd(
                             f"/execute positioned {mc_x} {top} {mc_z} "
                             f"run fill {mc_x} {top} {mc_z} {mc_x} {top} {mc_z} stone replace {db}")
@@ -320,7 +320,8 @@ async def bot_worker(
                         top = h + slab
                     block = {1: "redstone_block", 2: "glowstone", 3: "redstone_lamp",
                              4: "pearlescent_froglight", 5: "verdant_froglight",
-                             6: "ochre_froglight", 7: "lit_pumpkin"}.get(cv, "redstone_block")
+                             6: "ochre_froglight", 7: "lit_pumpkin",
+                             8: "sea_lantern"}.get(cv, "redstone_block")
                     await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z}")
                     await run_cmd(f"/setblock {mc_x} {top} {mc_z} {block}")
                     await run_cmd(f"/fill {mc_x} {top + 1} {mc_z} {mc_x} {top + 5} {mc_z} air")
