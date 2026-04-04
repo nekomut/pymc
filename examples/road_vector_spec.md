@@ -99,25 +99,18 @@ z=14–16 で取得できる属性:
 22xx（道路中心線）をバリアとして領域分割し、270x（道路縁線）を含む側を
 道路面として充填する手法。
 
-#### 道路判定（road_filled）— combined_edges 方式
+#### 道路判定（road_filled）— edge_22xx のみ方式
 
 1. `edge_22xx`（22xx/24xx）と `marker_270x`（270x）をラスタライズ
-2. `combined_edges = edge_22xx | marker_270x` をバリアとして領域分割
-3. `binary_dilation` で 22xx と 270x の両方に**隣接**する領域を選択
-4. 不適切な領域を除外（幅1以下、巨大領域）
-5. `dist_to_22 <= max_road_half_width` で制限
+2. `ndimage_label(~edge_22xx)` で 22xx をバリアとして領域分割
+3. 270x を**含む**領域を選択（containment 判定）
+4. `dist_to_22 <= max_road_half_width` で制限
+5. 22xx 自体と 270x 自体も道路に含める
 6. 細い道（271x-273x）は線のみ道路扱い
 7. 穴埋め（通常道路近傍のみ）
 
-**既知の問題**: combined_edges 方式は dilation による「隣接」判定のため、
-道路外の領域まで拾うことがある（はみ出し）。
-
-#### debug 領域ラベリング — edge_22xx のみ方式
-
-1. `dbg_edge_22xx`（22xx/24xx）のみをバリアとして領域分割
-2. 270x を**含む**領域を選択（dilation ではなく containment）
-3. `dist_to_22 <= max_road_half_width` で制限
-4. 穴埋め（通常道路近傍のみ）
+`--no-fill` オプション指定時は領域ラベリング・穴埋めをスキップし、
+ラスタライズした線（22xx, 270x, 271x-273x）のみが道路になる。
 
 ```
     22xx (バリア)
@@ -129,7 +122,10 @@ z=14–16 で取得できる属性:
     22xx (バリア)
 ```
 
-debug 方式は「含む」判定のため、はみ出しが起きにくい。
+#### debug 領域ラベリング
+
+道路判定と同じ edge_22xx のみ方式だが、独立した実装。
+道路判定と debug のロジックは共通化しない。
 
 ## 現在の処理フロー
 
@@ -138,19 +134,17 @@ debug 方式は「含む」判定のため、はみ出しが起きにくい。
 270x      → marker_270x にラスタライズ
 271x-273x → all_road_lines にラスタライズ（線のみ）
          ↓
-combined_edges = edge_22xx | marker_270x
-ndimage_label(~combined_edges) → 領域分割
+ndimage_label(~edge_22xx) → 領域分割
          ↓
-22xx・270x 両方に隣接する領域を選択（不適切領域を除外）
+270x を含む領域を選択（containment 判定）
          ↓
 dist_to_22 <= max_road_half_width で制限 → road_filled
          ↓
 穴埋め（通常道路近傍のみ）
          ↓
-橋判定: road_filled & water_mask → bridge_seed
-        水域を道路延長とみなした道路幅で膨張 → bridge_mask
+橋判定: road_filled & water_mask → bridge_mask
          ↓
-surface[road_filled & ~exclude] = SURFACE_ROAD
+surface[road_filled & ~water_mask] = SURFACE_ROAD
 ```
 
 ## --debug レッドストーン配置
@@ -174,13 +168,15 @@ gen_terrain.py --debug
   → centerlinemap (int8) として JSON 出力
 
 place_block.py
-  → terrain → bridge → building → centerline の順にフェーズ実行
+  → terrain → road → building → centerline の順にフェーズ実行
+  → terrain: 草地・水域を配置（道路セルも草地として配置）
+  → road: 道路（andesite+dirt）・橋（andesite）を上書き配置
   → centerline フェーズ: 橋面があれば橋の高さ、なければ地形の高さに
     デバッグブロックを配置（上5ブロックを air に）
 ```
 
 **注意**: debug の領域ラベリングは道路判定（road_filled）とは独立した実装。
-道路判定は combined_edges 方式、debug は edge_22xx のみ方式を使用する。
+両者は同じ edge_22xx のみ方式を使うが、ロジックは共通化しない。
 
 ### centerlinemap の仕様
 
@@ -312,16 +308,8 @@ ZL17 の 22xx は annoCtg で詳細分類される。
 
 ## 改善の検討ポイント
 
-### 道路判定のはみ出し
-- 現在の road_filled は combined_edges 方式（22xx+270x をバリア、dilation で隣接判定）
-- debug は edge_22xx のみ方式（22xx をバリア、containment で含有判定）→ はみ出しなし
-- road_filled を debug と同じ方式に変更すれば改善する可能性あり
-- ただしロジック共通化はしない方針
-
 ### 橋の判定
 - 現在: `road_filled & water_mask` で検出（水域上の道路 = 橋）
-- 橋幅: 水域を道路の延長とみなし `distance_transform_edt(road_filled | water_mask)` で
-  陸側の真の道路境界からの距離を道路半幅として使用
 - 課題: 水域がない橋（高架・陸橋）を検出できない
 - 改善案: ftCode の4桁目 = 3（橋・高架）を使って直接判定
   - 2703, 2713, 2723, 2733 = 橋・高架の縁線
@@ -339,3 +327,48 @@ ZL17 の 22xx は annoCtg で詳細分類される。
 ### 未使用の ftCode
 - 2702, 2712, 2722, 2732（雪覆い）— 通常部と同じ扱いで良い
 - 2713, 2733（庭園路・石段の橋）— 現在は道路判定に含めていない
+
+## place_block.py コマンドラインオプション
+
+| オプション          | 説明                               |
+|---------------------|------------------------------------|
+| `--reset`           | 進捗をリセットして最初からやり直す |
+| `--no-road`         | 道路・橋配置をスキップする         |
+| `--no-building`     | 建物配置をスキップする             |
+| `--only-road`       | 道路・橋配置のみ実行する           |
+| `--only-building`   | 建物配置のみ実行する               |
+| `--only-centerline` | レッドストーン配置のみ実行する     |
+
+## gen_terrain.py コマンドラインオプション
+
+| オプション  | 説明                                     |
+|-------------|------------------------------------------|
+| `--no-fill` | 領域ラベリングをスキップし道路線のみ出力 |
+| `--debug`   | デバッグ用: 道路中心線マップを出力       |
+
+## 道路・橋の高さ補間
+
+### 処理順序
+
+```
+DEM cubic spline 補間
+  ↓
+道路平坦化 (flatten_road_heights)
+  道路セルだけで線形補間し直し、周囲地形の影響を除去
+  ↓
+橋高さ調整 (adjust_bridge_heights)
+  橋セルの高さを最寄り道路セルの高さに設定
+  ↓
+道路・橋平滑化 (smooth_road_bridge)
+  拡散法（α=0.4, 最大500回）で道路+橋セル間の段差を平滑化
+  ↓
+橋面高さを bridgemap に記録、地形用に元の標高を復元
+```
+
+### place_block.py でのブロック配置
+
+道路・橋ブロック:
+- 道路: 上2=andesite, 3~4=dirt, 5以下=stone。スラブ: andesite_slab
+- 橋: 上2=andesite。スラブ: andesite_slab
+- h_half % 2 == 1 の場合、最上面に andesite_slab を配置
+- 配置前に標高±3ブロックを air に置換
