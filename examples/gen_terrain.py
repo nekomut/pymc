@@ -751,10 +751,10 @@ def main():
     parser.add_argument("--lon", type=float,
                         default=lon_default, required=lon_default is None,
                         help="中心経度")
-    parser.add_argument("--width", type=int, default=300,
-                        help="X方向ブロック数 (default: 300)")
-    parser.add_argument("--height", type=int, default=300,
-                        help="Z方向ブロック数 (default: 300)")
+    parser.add_argument("--width", type=int, default=100,
+                        help="X方向ブロック数 (default: 100)")
+    parser.add_argument("--height", type=int, default=100,
+                        help="Z方向ブロック数 (default: 100)")
     parser.add_argument("--base-altitude", type=float, default=0.0,
                         help="基準標高 m (default: 0)")
     parser.add_argument("--scale", type=float, default=0.75,
