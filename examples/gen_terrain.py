@@ -21,6 +21,16 @@ import urllib.request
 
 import numpy as np
 from matplotlib.path import Path
+
+LOCAL_CONFIG = os.path.join(os.path.dirname(__file__), "local.json")
+
+
+def load_local_config() -> dict:
+    """ローカル設定ファイルを読み込む（なければ空辞書）."""
+    if os.path.exists(LOCAL_CONFIG):
+        with open(LOCAL_CONFIG) as f:
+            return json.load(f)
+    return {}
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import distance_transform_edt, label as ndimage_label
 
@@ -730,10 +740,17 @@ def save_json(path: str, heightmap: np.ndarray,
 # ---------------------------------------------------------------------------
 
 def main():
+    cfg = load_local_config()
     parser = argparse.ArgumentParser(
         description="地理院タイルから Minecraft 地形データを生成する")
-    parser.add_argument("--lat", type=float, required=True, help="中心緯度")
-    parser.add_argument("--lon", type=float, required=True, help="中心経度")
+    lat_default = cfg.get("lat")
+    lon_default = cfg.get("lon")
+    parser.add_argument("--lat", type=float,
+                        default=lat_default, required=lat_default is None,
+                        help="中心緯度")
+    parser.add_argument("--lon", type=float,
+                        default=lon_default, required=lon_default is None,
+                        help="中心経度")
     parser.add_argument("--width", type=int, default=300,
                         help="X方向ブロック数 (default: 300)")
     parser.add_argument("--height", type=int, default=300,

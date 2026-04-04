@@ -34,6 +34,7 @@ from pymc.proto.packet.network_stack_latency import NetworkStackLatency
 
 logger = logging.getLogger(__name__)
 
+LOCAL_CONFIG = os.path.join(os.path.dirname(__file__), "local.json")
 TERRAIN_JSON = os.path.join(os.path.dirname(__file__), "terrain.json")
 HEIGHTMAP_CSV = os.path.join(os.path.dirname(__file__), "heightmap.csv")
 BUILDINGMAP_CSV = os.path.join(os.path.dirname(__file__), "buildingmap.csv")
@@ -516,8 +517,12 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
 
 
 if __name__ == "__main__":
+    cfg = {}
+    if os.path.exists(LOCAL_CONFIG):
+        with open(LOCAL_CONFIG) as f:
+            cfg = json.load(f)
     parser = argparse.ArgumentParser(description="DEM地形をMinecraftに配置する")
-    parser.add_argument("--address", default="127.0.0.1:19132")
+    parser.add_argument("--address", default=cfg.get("address", "127.0.0.1:19132"))
     parser.add_argument("--bots", type=int, default=5, help="並列ボット数 (default: 5, max: 26)")
     parser.add_argument("--reset", action="store_true", help="進捗をリセットして最初からやり直す")
     parser.add_argument("--no-road", action="store_true", help="道路・橋配置をスキップする")
