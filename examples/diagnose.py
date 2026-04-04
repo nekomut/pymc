@@ -8,7 +8,7 @@ async def diagnose(lan_address: str) -> None:
 
     # 公開サーバーへの ping (UDP が外部に通るか確認)
     try:
-        pong = await network.ping("play.nethergames.org:19132")
+        pong = await network.ping("127.0.0.1:19132")
         print(f"External UDP: OK ({pong.decode()[:60]})")
     except Exception:
         print("External UDP: NG (インターネット接続またはUDP全体がブロック)")
@@ -23,7 +23,7 @@ async def diagnose(lan_address: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="UDP connectivity diagnosis")
-    parser.add_argument("--address", default="192.168.1.28:19132",
-                        help="LAN server address (default: 192.168.1.28:19132)")
+    parser.add_argument("--address", default="127.0.0.1:19132",
+                        help="LAN server address (default: 127.0.0.1:19132)")
     args = parser.parse_args()
     asyncio.run(diagnose(args.address))

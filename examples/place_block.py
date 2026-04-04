@@ -13,7 +13,7 @@ BDS に直接接続し、基盤地図情報 DEM5A から生成した地形を配
   - MC座標: X+=東, Z+=南, Y+=上
 
 Usage:
-    python examples/place_block.py --address 192.168.1.28:19132 --bots 4
+    python examples/place_block.py --address 127.0.0.1:19132 --bots 4
 """
 
 from __future__ import annotations
@@ -517,7 +517,7 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DEM地形をMinecraftに配置する")
-    parser.add_argument("--address", default="192.168.1.24:19132")
+    parser.add_argument("--address", default="127.0.0.1:19132")
     parser.add_argument("--bots", type=int, default=5, help="並列ボット数 (default: 5, max: 26)")
     parser.add_argument("--reset", action="store_true", help="進捗をリセットして最初からやり直す")
     parser.add_argument("--no-road", action="store_true", help="道路・橋配置をスキップする")
