@@ -60,14 +60,15 @@ BOT_UUIDS = [f"b1e3a2f4-5c6d-7e8f-9a0b-1c2d3e4f5{i:03x}" for i in range(26)]
 BOT_XUIDS = [f"{1000000000000000 + i}" for i in range(26)]
 
 
-def load_terrain(json_path: str, csv_path: str) -> tuple[list[list[int]], list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, int, int]:
+def load_terrain(json_path: str, csv_path: str) -> tuple[list[list[int]], list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, int, int]:
     """地形データを読み込む. JSON があれば優先、なければ CSV にフォールバック.
 
-    Returns: (heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, x_offset, z_offset)
+    Returns: (heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, roadcatmap, x_offset, z_offset)
     x_offset/z_offset は heightmap[0][0] の MC 座標。
     surfacemap: 0=草地, 1=道路, 2=水域 (None なら全て stone)。
     bridgemap: 橋がある座標 = 1 (None なら橋なし)。
     centerlinemap: 道路中心線 = 1 (None なら中心線なし)。
+    roadcatmap: 主要道路(rdCtg 0-3) = 1 (None なら情報なし)。
     """
     if os.path.exists(json_path):
         with open(json_path) as f:
@@ -77,10 +78,11 @@ def load_terrain(json_path: str, csv_path: str) -> tuple[list[list[int]], list[l
         surfacemap = data.get("surfacemap")
         bridgemap = data.get("bridgemap")
         centerlinemap = data.get("centerlinemap")
+        roadcatmap = data.get("roadcatmap")
         mc_start = data.get("mc_start", {})
         x_off = mc_start.get("x", 0)
         z_off = mc_start.get("z", 0)
-        return heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, x_off, z_off
+        return heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, roadcatmap, x_off, z_off
 
     # CSV フォールバック
     heightmap = []
@@ -93,7 +95,7 @@ def load_terrain(json_path: str, csv_path: str) -> tuple[list[list[int]], list[l
         with open(BUILDINGMAP_CSV) as f:
             for row in csv.reader(f):
                 buildingmap.append([int(v) for v in row])
-    return heightmap, buildingmap, None, None, None, 0, 0
+    return heightmap, buildingmap, None, None, None, None, 0, 0
 
 
 def load_progress(path: str) -> set[int]:
@@ -161,6 +163,7 @@ async def bot_worker(
     surfacemap: list[list[int]] | None,
     bridgemap: list[list[int]] | None,
     centerlinemap: list[list[int]] | None,
+    roadcatmap: list[list[int]] | None,
     rows: list[int],
     phase: str,
     progress_file: str,
@@ -200,7 +203,7 @@ async def bot_worker(
             mc_z = z + z_offset
             if phase == "terrain":
                 # 草地・水域フェーズ: 全セルを草地または水域として配置
-                await run_cmd(f"/tp {name} {x_offset} {CLEAR_HEIGHT} {mc_z}")
+                await run_cmd(f"/tp {name} {x_offset} {CLEAR_HEIGHT} {mc_z} -90 0")
                 for x in range(size_x):
                     h_half = heightmap[z][x]
                     mc_x = x + x_offset
@@ -215,7 +218,7 @@ async def bot_worker(
                         if block == "water":
                             slab = 0
                         top = h + slab
-                        await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z}")
+                        await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z} -90 0")
                         # 標高±3ブロックを air に置換
                         air_bottom = max(0, h - 3)
                         air_top = h + 3
@@ -244,7 +247,7 @@ async def bot_worker(
             elif phase == "road":
                 # 道路・橋フェーズ: 道路セルを stone で上書き、橋セルも配置
                 h0 = (heightmap[z][0] // 2) + (heightmap[z][0] % 2)
-                await run_cmd(f"/tp {name} {x_offset} {h0 + 10} {mc_z}")
+                await run_cmd(f"/tp {name} {x_offset} {h0 + 10} {mc_z} -90 0")
                 for x in range(size_x):
                     mc_x = x + x_offset
                     is_bridge = bridgemap is not None and bridgemap[z][x] > 0
@@ -260,31 +263,38 @@ async def bot_worker(
                     h = h_half // 2
                     slab = h_half % 2
                     top = h + slab
-                    await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z}")
+                    await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z} -90 0")
                     # 標高±3ブロックを air に置換
                     air_bottom = max(0, h - 3)
                     air_top = h + 3
                     await run_cmd(f"/fill {mc_x} {air_bottom} {mc_z} {mc_x} {air_top} {mc_z} air")
+                    is_main = roadcatmap is not None and roadcatmap[z][x] == 1
+                    top_block = "gray_concrete_powder" if is_main else "stone"
                     if is_bridge:
-                        # 橋: 上2ブロック andesite
+                        # 橋: 上2ブロック (最上面=top_block, その下=stone)
                         if h >= 1:
-                            await run_cmd(f"/fill {mc_x} {h - 1} {mc_z} {mc_x} {h} {mc_z} andesite")
+                            await run_cmd(f"/setblock {mc_x} {h - 1} {mc_z} stone")
+                            await run_cmd(f"/setblock {mc_x} {h} {mc_z} {top_block}")
                         else:
-                            await run_cmd(f"/setblock {mc_x} 0 {mc_z} andesite")
+                            await run_cmd(f"/setblock {mc_x} 0 {mc_z} {top_block}")
                     else:
-                        # 道路: 上2=andesite, 3~4=dirt, 5以下=stone
+                        # 道路: 最上面=top_block, その下=stone, 3~4=dirt, 5以下=stone
                         if h >= 5:
                             await run_cmd(f"/fill {mc_x} {h - 3} {mc_z} {mc_x} {h - 2} {mc_z} dirt")
-                            await run_cmd(f"/fill {mc_x} {h - 1} {mc_z} {mc_x} {h} {mc_z} andesite")
+                            await run_cmd(f"/fill {mc_x} {h - 1} {mc_z} {mc_x} {h - 1} {mc_z} stone")
+                            await run_cmd(f"/setblock {mc_x} {h} {mc_z} {top_block}")
                         else:
-                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h} {mc_z} andesite")
+                            if h >= 1:
+                                await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 1} {mc_z} stone")
+                            await run_cmd(f"/setblock {mc_x} {h} {mc_z} {top_block}")
                     # ハーフブロック配置
                     if slab:
-                        await run_cmd(f'/setblock {mc_x} {h + 1} {mc_z} stone_block_slab2 ["stone_slab_type_2"="andesite"]')
+                        slab_block = "cobbled_deepslate_slab" if is_main else "normal_stone_slab"
+                        await run_cmd(f"/setblock {mc_x} {h + 1} {mc_z} {slab_block}")
             elif phase == "building" and buildingmap is not None:
                 # 建物配置（heightmap は半ブロック単位）
                 h0 = (heightmap[z][0] // 2) + (heightmap[z][0] % 2)
-                await run_cmd(f"/tp {name} {x_offset} {h0 + BUILDING_HEIGHT + 5} {mc_z}")
+                await run_cmd(f"/tp {name} {x_offset} {h0 + BUILDING_HEIGHT + 5} {mc_z} -90 0")
                 for x in range(size_x):
                     if buildingmap[z][x] == 1:
                         h_half = heightmap[z][x]
@@ -293,7 +303,7 @@ async def bot_worker(
                             h = (h_half // 2) + (h_half % 2)  # スラブ込みの最上位Y
                             y_bottom = h + 1
                             y_top = h + BUILDING_HEIGHT
-                            await run_cmd(f"/tp {name} {mc_x} {y_top + 5} {mc_z}")
+                            await run_cmd(f"/tp {name} {mc_x} {y_top + 5} {mc_z} -90 0")
                             await run_cmd(f"/setblock {mc_x} {h} {mc_z} stone")
                             await run_cmd(
                                 f"/fill {mc_x} {y_bottom} {mc_z} {mc_x} {y_top} {mc_z} {BUILDING_BLOCK_TYPE}"
@@ -301,7 +311,7 @@ async def bot_worker(
             elif phase == "centerline" and centerlinemap is not None:
                 # まず既存のレッドストーンを stone に置換、その後新しいレッドストーンを配置
                 h0 = (heightmap[z][0] // 2) + (heightmap[z][0] % 2)
-                await run_cmd(f"/tp {name} {x_offset} {h0 + 5} {mc_z}")
+                await run_cmd(f"/tp {name} {x_offset} {h0 + 5} {mc_z} -90 0")
                 for x in range(size_x):
                     mc_x = x + x_offset
                     if bridgemap is not None and bridgemap[z][x] > 0:
@@ -340,7 +350,7 @@ async def bot_worker(
                              4: "pearlescent_froglight", 5: "verdant_froglight",
                              6: "ochre_froglight", 7: "lit_pumpkin",  # 222x
                              8: "sea_lantern"}.get(cv, "redstone_block")
-                    await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z}")
+                    await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z} -90 0")
                     await run_cmd(f"/setblock {mc_x} {top} {mc_z} {block}")
                     await run_cmd(f"/fill {mc_x} {top + 1} {mc_z} {mc_x} {top + 5} {mc_z} air")
             save_progress_line(progress_file, z)
@@ -377,7 +387,7 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
         logger.error("サーバー応答なし: %s", e)
         return
 
-    heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, x_offset, z_offset = load_terrain(TERRAIN_JSON, HEIGHTMAP_CSV)
+    heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, roadcatmap, x_offset, z_offset = load_terrain(TERRAIN_JSON, HEIGHTMAP_CSV)
     size_z = len(heightmap)
     size_x = len(heightmap[0])
     source = "JSON" if os.path.exists(TERRAIN_JSON) else "CSV"
@@ -500,7 +510,7 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
 
         await asyncio.gather(
             *(bot_worker(i, connections[i], read_tasks[i], heightmap, buildingmap,
-                         surfacemap, bridgemap, centerlinemap,
+                         surfacemap, bridgemap, centerlinemap, roadcatmap,
                          chunks[i], phase_name, progress_file,
                          stats, x_offset, z_offset)
               for i in range(actual_bots))
@@ -523,7 +533,7 @@ if __name__ == "__main__":
             cfg = json.load(f)
     parser = argparse.ArgumentParser(description="DEM地形をMinecraftに配置する")
     parser.add_argument("--address", default=cfg.get("address", "127.0.0.1:19132"))
-    parser.add_argument("--bots", type=int, default=5, help="並列ボット数 (default: 5, max: 26)")
+    parser.add_argument("--bots", type=int, default=4, help="並列ボット数 (default: 4, max: 26)")
     parser.add_argument("--reset", action="store_true", help="進捗をリセットして最初からやり直す")
     parser.add_argument("--no-road", action="store_true", help="道路・橋配置をスキップする")
     parser.add_argument("--no-building", action="store_true", help="建物配置をスキップする")

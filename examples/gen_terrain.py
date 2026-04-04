@@ -326,7 +326,7 @@ def fetch_vectors(origin_lat: float, origin_lon: float,
         blocks_per_deg_lat, blocks_per_deg_lon,
         VECTOR_ZOOM_EXTRA, {"road"})
 
-    road_lines: list[tuple[list, int]] = []
+    road_lines: list[tuple[list, int, int]] = []
     water_polys: list[list] = []
     building_polys: list[list] = []
 
@@ -344,14 +344,15 @@ def fetch_vectors(origin_lat: float, origin_lon: float,
             return [p[0] for p in geom["coordinates"]]
         return []
 
-    # z=15: 道路線（27xx/22xx すべて取得、Voronoi は Pass 1/2 でフィルタ）
+    # z=15: 道路線（27xx/22xx すべて取得）
     for layer_name, geom, props in feats_z15:
         if layer_name == "road":
             ft = props.get("ftCode", 0)
             if not (2200 <= ft < 2300 or 2400 <= ft < 2500 or 2700 <= ft < 2800):
                 continue
+            rdctg = props.get("rdCtg", -1)
             for line in extract_lines(geom):
-                road_lines.append((line, ft))
+                road_lines.append((line, ft, rdctg))
         elif layer_name == "waterarea":
             water_polys.extend(extract_polys(geom))
         elif layer_name == "building":
@@ -365,8 +366,9 @@ def fetch_vectors(origin_lat: float, origin_lon: float,
             ft = props.get("ftCode", 0)
             if not (2200 <= ft < 2300 or 2400 <= ft < 2500 or 2700 <= ft < 2800):
                 continue
+            rdctg = props.get("rdCtg", -1)
             for line in extract_lines(geom):
-                road_lines.append((line, ft))
+                road_lines.append((line, ft, rdctg))
 
     z16_count = len(road_lines) - z15_count
     print(f"  道路縁線 z={VECTOR_ZOOM_EDGE}: {z15_count} 本")
@@ -412,11 +414,12 @@ def rasterize_polygons(polys: list[list], shape: tuple[int, int],
 def gen_maps(road_lines: list, water_polys: list, building_polys: list,
              shape: tuple[int, int], mc_x_start: int, mc_z_start: int,
              scale: float, *, debug: bool = False, no_fill: bool = False,
-             ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+             ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
     """道路・水域・建物からサーフェスマップ・建物マップ・橋マップを生成.
 
-    Returns: (surfacemap, buildingmap, bridgemap, centerlinemap)
+    Returns: (surfacemap, buildingmap, bridgemap, centerlinemap, roadcatmap)
         centerlinemap: debug=True のとき、道路中心線の boolean マップ (int8)。
+        roadcatmap: rdCtg 0-3 の道路セルを示すマップ (int8)。
     """
     ny, nx = shape
     surface = np.full(shape, SURFACE_GRASS, dtype=np.int8)
@@ -462,14 +465,17 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
     # 22xx/24xx（道路中心線）と 270x（通常道路縁線）をラスタライズ
     edge_22xx = np.zeros(shape, dtype=bool)
     marker_270x = np.zeros(shape, dtype=bool)
+    marker_main_road = np.zeros(shape, dtype=bool)  # rdCtg 0-3 の道路線
     all_road_lines = np.zeros(shape, dtype=bool)  # 全道路線（27xx 含む）
-    for mc_coords, ft_code in road_lines:
+    for mc_coords, ft_code, rdctg in road_lines:
         if 2200 <= ft_code < 2300 or 2400 <= ft_code < 2500:
             rasterize_to_mask(mc_coords, edge_22xx, val=True)
             rasterize_to_mask(mc_coords, all_road_lines, val=True)
         elif 2700 <= ft_code < 2710:
             rasterize_to_mask(mc_coords, marker_270x, val=True)
             rasterize_to_mask(mc_coords, all_road_lines, val=True)
+            if rdctg in (0, 1, 3):
+                rasterize_to_mask(mc_coords, marker_main_road, val=True)
         elif 2700 <= ft_code < 2800:
             rasterize_to_mask(mc_coords, all_road_lines, val=True)
 
@@ -507,6 +513,14 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
         print(f"  道路縁線: 22xx={int(edge_22xx.sum())}, 270x={int(marker_270x.sum())}, "
               f"領域: {len(road_region_ids)}/{n_regions}")
 
+    # rdCtg 0-3 の道路セルマスク（主要道路）
+    if marker_main_road.any():
+        dist_to_main = distance_transform_edt(~marker_main_road)
+        main_road_mask = road_filled & (dist_to_main <= max_road_half_width)
+    else:
+        main_road_mask = np.zeros(shape, dtype=bool)
+    roadcatmap = main_road_mask.astype(np.int8) if main_road_mask.any() else None
+
     # 橋 = 道路が水域を横断する箇所（road_filled と水域の重なり）
     bridge_mask = road_filled & water_mask
     if road_filled.any():
@@ -514,8 +528,9 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
 
     road_count = int((surface == SURFACE_ROAD).sum())
     bridge_count = int(bridge_mask.sum())
+    main_road_count = int(main_road_mask.sum())
     grass_count = int((surface == SURFACE_GRASS).sum())
-    print(f"道路セル: {road_count}/{ny * nx}")
+    print(f"道路セル: {road_count}/{ny * nx} (主要道路: {main_road_count})")
     print(f"橋セル: {bridge_count}/{ny * nx}")
     print(f"草地セル: {grass_count}/{ny * nx}")
 
@@ -526,13 +541,13 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
     if debug:
         # 22xx/24xx（道路縁線）
         dbg_edge_22xx = np.zeros(shape, dtype=bool)
-        for mc_coords, ft_code in road_lines:
+        for mc_coords, ft_code, _ in road_lines:
             if 2200 <= ft_code < 2300 or 2400 <= ft_code < 2500:
                 rasterize_to_mask(mc_coords, dbg_edge_22xx, val=True)
 
         # 270x のみ（通常道路）— 細い道 271x-273x は充填対象外
         dbg_marker_270x = np.zeros(shape, dtype=bool)
-        for mc_coords, ft_code in road_lines:
+        for mc_coords, ft_code, _ in road_lines:
             if 2700 <= ft_code < 2710:
                 rasterize_to_mask(mc_coords, dbg_marker_270x, val=True)
 
@@ -569,7 +584,7 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
 
         # ftCode 別ライン描画（背景を上書き）
         ft_counts: dict[int, int] = {}
-        for mc_coords, ft_code in road_lines:
+        for mc_coords, ft_code, _ in road_lines:
             if 2700 <= ft_code < 2710:
                 v = 2
             elif 2710 <= ft_code < 2720:
@@ -600,7 +615,7 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
         for ft, cnt in sorted(ft_counts.items()):
             print(f"  ftCode {ft}: {cnt} セル")
 
-    return surface, buildingmap, bridgemap, centerlinemap
+    return surface, buildingmap, bridgemap, centerlinemap, roadcatmap
 
 # ---------------------------------------------------------------------------
 # 後処理
@@ -712,7 +727,8 @@ def save_json(path: str, heightmap: np.ndarray,
               origin_lat: float, origin_lon: float,
               scale: float, base_altitude: float,
               mc_x_start: int, mc_z_start: int,
-              centerlinemap: np.ndarray | None = None) -> None:
+              centerlinemap: np.ndarray | None = None,
+              roadcatmap: np.ndarray | None = None) -> None:
     data = {
         "origin": {"lat": origin_lat, "lon": origin_lon},
         "scale": scale,
@@ -729,6 +745,8 @@ def save_json(path: str, heightmap: np.ndarray,
         data["bridgemap"] = bridgemap.tolist()
     if centerlinemap is not None:
         data["centerlinemap"] = centerlinemap.tolist()
+    if roadcatmap is not None:
+        data["roadcatmap"] = roadcatmap.tolist()
 
     with open(path, "w") as f:
         json.dump(data, f, separators=(",", ":"))
@@ -805,7 +823,7 @@ def main():
         blocks_per_deg_lat, blocks_per_deg_lon)
 
     # サーフェスマップ・建物マップ・橋マップ生成
-    surfacemap, buildingmap, bridgemap, centerlinemap = gen_maps(
+    surfacemap, buildingmap, bridgemap, centerlinemap, roadcatmap = gen_maps(
         road_lines, water_polys, building_polys,
         interp.shape, mc_x_start, mc_z_start, scale,
         debug=args.debug, no_fill=args.no_fill)
@@ -842,7 +860,7 @@ def main():
     # JSON 出力
     save_json(output, h_int, buildingmap, surfacemap, bridgemap,
               args.lat, args.lon, scale, args.base_altitude,
-              mc_x_start, mc_z_start, centerlinemap)
+              mc_x_start, mc_z_start, centerlinemap, roadcatmap)
 
     elapsed = time.monotonic() - t0
     print(f"完了: {elapsed:.1f} 秒")
