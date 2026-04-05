@@ -153,7 +153,9 @@ class RealmsClient:
             return await resp.json(content_type=None)
 
 
-def _parse_players(raw: list[dict]) -> list[Player]:
+def _parse_players(raw: list[dict] | None) -> list[Player]:
+    if not raw:
+        return []
     return [
         Player(
             uuid=p.get("uuid", ""),

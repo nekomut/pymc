@@ -1,11 +1,11 @@
 import asyncio
-from pymc.auth.live import request_live_token
+from pymc.auth.live import get_live_token
 from pymc.auth.xbox import request_xbl_token
 from pymc.realms import RealmsClient
 
 async def main():
-    # 1. 認証
-    live_token = await request_live_token()
+    # 1. 認証（キャッシュ付き）
+    live_token = await get_live_token()
     xbl_token = await request_xbl_token(
         live_token,
         "https://pocket.realms.minecraft.net/",

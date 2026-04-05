@@ -7,9 +7,12 @@ an OAuth2 access token from Microsoft Live Connect.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import IO, Callable
 
 import aiohttp
@@ -29,6 +32,23 @@ class Token:
 
     def valid(self) -> bool:
         return time.time() < self.expiry - 60  # 1 minute buffer
+
+    def to_dict(self) -> dict:
+        return {
+            "access_token": self.access_token,
+            "token_type": self.token_type,
+            "refresh_token": self.refresh_token,
+            "expiry": self.expiry,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Token:
+        return cls(
+            access_token=data["access_token"],
+            token_type=data["token_type"],
+            refresh_token=data["refresh_token"],
+            expiry=data["expiry"],
+        )
 
 
 @dataclass
@@ -71,6 +91,72 @@ PLAYSTATION_CONFIG = Config(
     version="10.0.0",
     user_agent="XAL",
 )
+
+
+# Token cache file path (~/.pymc/token_cache.json)
+_DEFAULT_CACHE_DIR = Path.home() / ".pymc"
+_DEFAULT_CACHE_PATH = _DEFAULT_CACHE_DIR / "token_cache.json"
+
+
+def save_token(token: Token, path: Path | str | None = None) -> None:
+    """トークンをファイルに保存する."""
+    p = Path(path) if path else _DEFAULT_CACHE_PATH
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(token.to_dict()))
+
+
+def load_token(path: Path | str | None = None) -> Token | None:
+    """保存済みトークンを読み込む。なければ None."""
+    p = Path(path) if path else _DEFAULT_CACHE_PATH
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text())
+        return Token.from_dict(data)
+    except Exception:
+        return None
+
+
+async def get_live_token(
+    config: Config | None = None,
+    writer: IO[str] | None = None,
+    session: aiohttp.ClientSession | None = None,
+    cache_path: Path | str | None = None,
+) -> Token:
+    """キャッシュ付きでトークンを取得する.
+
+    1. キャッシュから読み込み、有効ならそのまま返す
+    2. 期限切れなら refresh_token で更新
+    3. キャッシュがない/refresh 失敗ならブラウザ認証
+
+    Returns:
+        有効な OAuth2 Token.
+    """
+    # キャッシュから読み込み
+    cached = load_token(cache_path)
+    if cached is not None:
+        if cached.valid():
+            if writer is None:
+                writer = sys.stdout
+            writer.write("キャッシュ済みトークンを使用.\n")
+            writer.flush()
+            return cached
+        # refresh_token で更新を試みる
+        try:
+            token = await refresh_token(cached, config, session)
+            save_token(token, cache_path)
+            if writer is None:
+                writer = sys.stdout
+            writer.write("トークンを更新しました.\n")
+            writer.flush()
+            return token
+        except Exception:
+            pass  # refresh 失敗 → ブラウザ認証にフォールバック
+
+    # ブラウザ認証
+    token = await request_live_token(config, writer, session)
+    save_token(token, cache_path)
+    return token
 
 
 # Global server time delta for signed requests.

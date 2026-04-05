@@ -415,7 +415,7 @@ def rasterize_polygons(polys: list[list], shape: tuple[int, int],
 
 def gen_maps(road_lines: list, water_polys: list, building_polys: list,
              shape: tuple[int, int], mc_x_start: int, mc_z_start: int,
-             scale: float, *, debug: bool = False, no_fill: bool = False,
+             scale: float, *, debug: bool = False, no_fill: bool = False, fill: bool = False,
              ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
     """道路・水域・建物からサーフェスマップ・建物マップ・橋マップを生成.
 
@@ -474,8 +474,8 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
             rasterize_to_mask(mc_coords, edge_22xx, val=True)
             rasterize_to_mask(mc_coords, all_road_lines, val=True)
         elif 2700 <= ft_code < 2710:
-            if rdctg == 5 and rnkw == 0:
-                # 細い道（rdCtg=5, rnkWidth=0）は領域充填せず線のみ
+            if rnkw == 0 and not fill:
+                # 細い道（rnkWidth=0）は領域充填せず線のみ
                 rasterize_to_mask(mc_coords, all_road_lines, val=True)
             else:
                 rasterize_to_mask(mc_coords, marker_270x, val=True)
@@ -554,7 +554,7 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
         # 270x のみ（通常道路）— 細い道 271x-273x と rdCtg=5/rnkWidth=0 は充填対象外
         dbg_marker_270x = np.zeros(shape, dtype=bool)
         for mc_coords, ft_code, rdctg, rnkw in road_lines:
-            if 2700 <= ft_code < 2710 and not (rdctg == 5 and rnkw == 0):
+            if 2700 <= ft_code < 2710 and (rnkw != 0 or fill):
                 rasterize_to_mask(mc_coords, dbg_marker_270x, val=True)
 
         # 22xx で区切られた領域をラベリング
@@ -791,6 +791,8 @@ def main():
                         help="出力パス (default: examples/terrain.json)")
     parser.add_argument("--no-fill", action="store_true",
                         help="領域ラベリングをスキップし道路線のみ出力")
+    parser.add_argument("--fill", action="store_true",
+                        help="rnkWidth=0の道路も領域充填する")
     parser.add_argument("--debug", action="store_true",
                         help="デバッグ用: 道路中心線マップを出力")
     args = parser.parse_args()
@@ -832,7 +834,7 @@ def main():
     surfacemap, buildingmap, bridgemap, centerlinemap, roadcatmap = gen_maps(
         road_lines, water_polys, building_polys,
         interp.shape, mc_x_start, mc_z_start, scale,
-        debug=args.debug, no_fill=args.no_fill)
+        debug=args.debug, no_fill=args.no_fill, fill=args.fill)
 
     # 道路平坦化
     flatten_roads(interp, surfacemap, dem_data, dem_x, dem_z,

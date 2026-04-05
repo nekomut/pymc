@@ -102,15 +102,18 @@ z=14–16 で取得できる属性:
 #### 道路判定（road_filled）— edge_22xx のみ方式
 
 1. `edge_22xx`（22xx/24xx）と `marker_270x`（270x）をラスタライズ
+   - 270x のうち rnkWidth=0（3m未満）は `marker_270x` に含めず線のみ
 2. `ndimage_label(~edge_22xx)` で 22xx をバリアとして領域分割
 3. 270x を**含む**領域を選択（containment 判定）
-4. `dist_to_22 <= max_road_half_width` で制限
+4. `dist_to_22 <= max_road_half_width`（6.6m）で制限
 5. 22xx 自体と 270x 自体も道路に含める
 6. 細い道（271x-273x）は線のみ道路扱い
 7. 穴埋め（通常道路近傍のみ）
+8. rdCtg 0,1,3 の 270x 近傍を主要道路（`roadcatmap`）としてマーク
 
 `--no-fill` オプション指定時は領域ラベリング・穴埋めをスキップし、
 ラスタライズした線（22xx, 270x, 271x-273x）のみが道路になる。
+rnkWidth=0 の 270x も `--no-fill` と同様に線のみ道路になる。
 
 ```
     22xx (バリア)
@@ -131,16 +134,20 @@ z=14–16 で取得できる属性:
 
 ```
 22xx/24xx → edge_22xx にラスタライズ
-270x      → marker_270x にラスタライズ
+270x      → marker_270x にラスタライズ（rnkWidth=0 は除外）
+270x(rdCtg 0,1,3) → marker_main_road にラスタライズ
 271x-273x → all_road_lines にラスタライズ（線のみ）
+270x(rnkWidth=0) → all_road_lines にラスタライズ（線のみ）
          ↓
 ndimage_label(~edge_22xx) → 領域分割
          ↓
 270x を含む領域を選択（containment 判定）
          ↓
-dist_to_22 <= max_road_half_width で制限 → road_filled
+dist_to_22 <= max_road_half_width(6.6m) で制限 → road_filled
          ↓
 穴埋め（通常道路近傍のみ）
+         ↓
+marker_main_road 近傍の road_filled → roadcatmap（主要道路）
          ↓
 橋判定: road_filled & water_mask → bridge_mask
          ↓
@@ -387,7 +394,10 @@ DEM cubic spline 補間
 ### place_block.py でのブロック配置
 
 道路・橋ブロック:
-- 道路: 上2=andesite, 3~4=dirt, 5以下=stone。スラブ: andesite_slab
-- 橋: 上2=andesite。スラブ: andesite_slab
-- h_half % 2 == 1 の場合、最上面に andesite_slab を配置
+- 主要道路（rdCtg 0,1,3）: 最上面=gray_concrete_powder, その下=stone, 3~4=dirt, 5以下=stone
+- その他道路: 最上面=stone, その下=stone, 3~4=dirt, 5以下=stone
+- 主要橋: 最上面=gray_concrete_powder, その下=stone
+- その他橋: 最上面=stone, その下=stone
+- h_half % 2 == 1 の場合: 主要道路=cobbled_deepslate_slab、その他=normal_stone_slab
 - 配置前に標高±3ブロックを air に置換
+- ボットは東向き（yRot=-90）で配置
