@@ -129,7 +129,7 @@ class Connection:
 
     async def write_packet(self, pk: Packet) -> None:
         """Buffer a packet for sending. It will be flushed automatically."""
-        logger.info("queue packet: %s (id=%d)", type(pk).__name__, pk.packet_id)
+        logger.debug("queue packet: %s (id=%d)", type(pk).__name__, pk.packet_id)
         data = encode_packet(pk)
         async with self._send_lock:
             self._send_buffer.append(data)
@@ -141,7 +141,7 @@ class Connection:
                 return
             to_send = self._send_buffer
             self._send_buffer = []
-        logger.info("flush: %d packet(s)", len(to_send))
+        logger.debug("flush: %d packet(s)", len(to_send))
 
         batch = bytearray(
             encode_batch(

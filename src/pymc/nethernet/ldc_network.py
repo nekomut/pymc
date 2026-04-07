@@ -83,7 +83,7 @@ class LdcNetherNetConn(NetworkConnection):
     def _on_message_cb(self, msg: dc.Message) -> None:
         """Handle incoming DataChannel message (called from libdatachannel thread)."""
         data = bytes(msg)
-        logger.info("DC recv: %d bytes, hex=%s", len(data), data[:80].hex())
+        logger.debug("DC recv: %d bytes, hex=%s", len(data), data[:80].hex())
         if len(data) < 2:
             logger.warning("received segment too short: %d bytes", len(data))
             return
@@ -132,7 +132,7 @@ class LdcNetherNetConn(NetworkConnection):
         while offset < len(data):
             end = min(offset + MAX_MESSAGE_SIZE, len(data))
             segment = bytes([remaining]) + data[offset:end]
-            logger.info("DC send: %d bytes, hex=%s", len(segment), segment[:80].hex())
+            logger.debug("DC send: %d bytes, hex=%s", len(segment), segment[:80].hex())
             self._reliable_dc.send(segment)
             offset = end
             remaining -= 1

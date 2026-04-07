@@ -74,7 +74,7 @@ def apply():
         elif isinstance(chunk, sctp.ForwardTsnChunk):
             extra = f" tsn={getattr(chunk, 'cumulative_tsn', '?')}"
 
-        logger.info("SCTP recv chunk: %s%s", chunk_name, extra)
+        logger.debug("SCTP recv chunk: %s%s", chunk_name, extra)
         await _original_receive_chunk(self, chunk)
 
     sctp.RTCSctpTransport._receive_chunk = _patched_receive_chunk
@@ -94,7 +94,7 @@ def apply():
         elif isinstance(chunk, sctp.SackChunk):
             extra = f" cumtsn={chunk.cumulative_tsn} rwnd={chunk.advertised_rwnd}"
 
-        logger.info("SCTP send chunk: %s%s", chunk_name, extra)
+        logger.debug("SCTP send chunk: %s%s", chunk_name, extra)
         await _original_send_chunk(self, chunk)
 
     sctp.RTCSctpTransport._send_chunk = _patched_send_chunk

@@ -286,7 +286,7 @@ class Dialer:
 
         while True:
             pk = await asyncio.wait_for(conn.read_packet(), timeout=30.0)
-            logger.info("spawn: received %s (id=%d)", type(pk).__name__, pk.packet_id)
+            logger.debug("spawn: received %s (id=%d)", type(pk).__name__, pk.packet_id)
 
             if isinstance(pk, Disconnect):
                 logger.error("spawn: Disconnect reason=%d message=%s", pk.reason, pk.message)

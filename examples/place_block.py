@@ -490,10 +490,6 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
-    # Enable SCTP/DataChannel debug logging for diagnostics.
-    logging.getLogger("aiortc.rtcsctptransport").setLevel(logging.DEBUG)
-    logging.getLogger("aiortc.rtcdatachannel").setLevel(logging.DEBUG)
-
     if num_bots < 1 or num_bots > 26:
         logger.error("ボット数は 1~26 で指定してください")
         return
