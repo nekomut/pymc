@@ -18,8 +18,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-libdatachannel = ["libdatachannel>=0.2"]
-realms = ["libdatachannel>=0.2"]
+libdatachannel = ["libdatachannel-py>=2025.1"]
+realms = ["libdatachannel-py>=2025.1"]
 snappy = ["python-snappy>=0.7"]
 dev = [
     "pytest>=8.0",
