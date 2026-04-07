@@ -424,7 +424,7 @@ async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, obje
     if is_nethernet:
         logger.info("NetherNet プロトコル検出: MCToken を取得中...")
         from pymc.auth.service import discover, request_service_token, request_multiplayer_token
-        from pymc.nethernet.ldc_network import LdcNetherNetNetwork
+        from pymc.nethernet import create_network
 
         # PlayFab 認証: XBL → PlayFab SessionTicket → MCToken
         from pymc.auth.playfab import login_with_xbox as playfab_login
@@ -459,8 +459,8 @@ async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, obje
         )
         logger.info("Multiplayer token 取得完了")
 
-        # NetherNet ネットワーク (libdatachannel ネイティブ実装)
-        network = LdcNetherNetNetwork(
+        # NetherNet ネットワーク (libdatachannel 優先、なければ aiortc)
+        network = create_network(
             mc_token=service_token.authorization_header,
             signaling_url=signaling_info.service_uri,
             use_jsonrpc=is_jsonrpc,

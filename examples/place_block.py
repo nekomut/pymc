@@ -60,7 +60,7 @@ async def resolve_realms(invite_code: str | None = None):
     if is_nethernet:
         from pymc.auth.service import discover, request_service_token, request_multiplayer_token
         from pymc.auth.playfab import login_with_xbox as playfab_login
-        from pymc.nethernet.ldc_network import LdcNetherNetNetwork
+        from pymc.nethernet import create_network
 
         xbl_pf = await request_xbl_token(live_token, "http://playfab.xboxlive.com/")
         discovery = await discover()
@@ -73,7 +73,7 @@ async def resolve_realms(invite_code: str | None = None):
         multiplayer_token = await request_multiplayer_token(
             discovery.auth_uri, service_token, key.public_key(),
         )
-        network = LdcNetherNetNetwork(
+        network = create_network(
             mc_token=service_token.authorization_header,
             signaling_url=discovery.signaling_info.service_uri,
             use_jsonrpc=is_jsonrpc,
