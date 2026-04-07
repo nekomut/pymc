@@ -14,9 +14,9 @@ import time
 # 詳細ログ有効化
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(name)s %(message)s")
 
-from pymc.raknet import RakNetNetwork
-from pymc.raknet.connection import RakNetClientConnection, RakNetClientProtocol, _current_time_ms
-from pymc.raknet.protocol import (
+from mcbe.raknet import RakNetNetwork
+from mcbe.raknet.connection import RakNetClientConnection, RakNetClientProtocol, _current_time_ms
+from mcbe.raknet.protocol import (
     FRAME_SET_MIN, FRAME_SET_MAX, ACK, NACK,
     CONNECTION_REQUEST, CONNECTION_REQUEST_ACCEPTED,
     GAME_PACKET, decode_frame_set,

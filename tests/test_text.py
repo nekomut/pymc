@@ -1,6 +1,6 @@
 """Tests for text formatting module."""
 
-from pymc.text.formatting import (
+from mcbe.text.formatting import (
     BOLD, RED, RESET, clean, colourf, to_ansi,
 )
 
@@ -58,7 +58,7 @@ class TestColourf:
 
 class TestResourceManifest:
     def test_manifest_parse(self):
-        from pymc.resource.manifest import Manifest
+        from mcbe.resource.manifest import Manifest
 
         json_str = """{
             "format_version": 2,
@@ -88,7 +88,7 @@ class TestResourceManifest:
         assert str(m.dependencies[0].version) == "1.0.0"
 
     def test_version_string_format(self):
-        from pymc.resource.manifest import Version
+        from mcbe.resource.manifest import Version
 
         v = Version.from_json("1.2.3")
         assert v.major == 1
@@ -96,7 +96,7 @@ class TestResourceManifest:
         assert v.patch == 3
 
     def test_version_array_format(self):
-        from pymc.resource.manifest import Version
+        from mcbe.resource.manifest import Version
 
         v = Version.from_json([1, 0, 5])
         assert str(v) == "1.0.5"

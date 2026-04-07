@@ -1,7 +1,7 @@
 """Tests for conditional/branching packet roundtrip serialization."""
 
-from pymc.proto.io import PacketReader, PacketWriter
-from pymc.proto.types import BlockPos, ChunkPos, SubChunkPos, Vec3
+from mcbe.proto.io import PacketReader, PacketWriter
+from mcbe.proto.types import BlockPos, ChunkPos, SubChunkPos, Vec3
 
 
 def _roundtrip(pk):
@@ -17,7 +17,7 @@ def _roundtrip(pk):
 
 class TestMovePlayer:
     def test_roundtrip_normal(self):
-        from pymc.proto.packet.move_player import MovePlayer, MOVE_MODE_NORMAL
+        from mcbe.proto.packet.move_player import MovePlayer, MOVE_MODE_NORMAL
         pk = MovePlayer(
             entity_runtime_id=42,
             position=Vec3(1.0, 2.0, 3.0),
@@ -38,7 +38,7 @@ class TestMovePlayer:
         assert result.tick == 100
 
     def test_roundtrip_teleport(self):
-        from pymc.proto.packet.move_player import MovePlayer, MOVE_MODE_TELEPORT, TELEPORT_CAUSE_COMMAND
+        from mcbe.proto.packet.move_player import MovePlayer, MOVE_MODE_TELEPORT, TELEPORT_CAUSE_COMMAND
         pk = MovePlayer(
             entity_runtime_id=7,
             position=Vec3(100.0, 64.0, 200.0),
@@ -63,7 +63,7 @@ class TestMovePlayer:
 
 class TestLevelChunk:
     def test_roundtrip_basic(self):
-        from pymc.proto.packet.level_chunk import LevelChunk
+        from mcbe.proto.packet.level_chunk import LevelChunk
         pk = LevelChunk(
             position=ChunkPos(10, 20),
             dimension=0,
@@ -79,7 +79,7 @@ class TestLevelChunk:
         assert result.blob_hashes == []
 
     def test_roundtrip_with_cache(self):
-        from pymc.proto.packet.level_chunk import LevelChunk
+        from mcbe.proto.packet.level_chunk import LevelChunk
         pk = LevelChunk(
             position=ChunkPos(5, 15),
             dimension=1,
@@ -93,7 +93,7 @@ class TestLevelChunk:
         assert result.blob_hashes == [111, 222, 333]
 
     def test_roundtrip_limited(self):
-        from pymc.proto.packet.level_chunk import LevelChunk, SUB_CHUNK_REQUEST_MODE_LIMITED
+        from mcbe.proto.packet.level_chunk import LevelChunk, SUB_CHUNK_REQUEST_MODE_LIMITED
         pk = LevelChunk(
             position=ChunkPos(0, 0),
             dimension=0,
@@ -111,7 +111,7 @@ class TestLevelChunk:
 
 class TestBossEvent:
     def test_roundtrip_show(self):
-        from pymc.proto.packet.boss_event import BossEvent, BOSS_EVENT_SHOW
+        from mcbe.proto.packet.boss_event import BossEvent, BOSS_EVENT_SHOW
         pk = BossEvent(
             boss_entity_unique_id=1,
             event_type=BOSS_EVENT_SHOW,
@@ -129,13 +129,13 @@ class TestBossEvent:
         assert result.colour == 2
 
     def test_roundtrip_hide(self):
-        from pymc.proto.packet.boss_event import BossEvent, BOSS_EVENT_HIDE
+        from mcbe.proto.packet.boss_event import BossEvent, BOSS_EVENT_HIDE
         pk = BossEvent(boss_entity_unique_id=1, event_type=BOSS_EVENT_HIDE)
         result = _roundtrip(pk)
         assert result.event_type == BOSS_EVENT_HIDE
 
     def test_roundtrip_register_player(self):
-        from pymc.proto.packet.boss_event import BossEvent, BOSS_EVENT_REGISTER_PLAYER
+        from mcbe.proto.packet.boss_event import BossEvent, BOSS_EVENT_REGISTER_PLAYER
         pk = BossEvent(
             boss_entity_unique_id=1,
             event_type=BOSS_EVENT_REGISTER_PLAYER,
@@ -146,7 +146,7 @@ class TestBossEvent:
         assert result.player_unique_id == 42
 
     def test_roundtrip_health_percentage(self):
-        from pymc.proto.packet.boss_event import BossEvent, BOSS_EVENT_HEALTH_PERCENTAGE
+        from mcbe.proto.packet.boss_event import BossEvent, BOSS_EVENT_HEALTH_PERCENTAGE
         pk = BossEvent(
             boss_entity_unique_id=1,
             event_type=BOSS_EVENT_HEALTH_PERCENTAGE,
@@ -156,7 +156,7 @@ class TestBossEvent:
         assert abs(result.health_percentage - 0.5) < 0.001
 
     def test_roundtrip_title(self):
-        from pymc.proto.packet.boss_event import BossEvent, BOSS_EVENT_TITLE
+        from mcbe.proto.packet.boss_event import BossEvent, BOSS_EVENT_TITLE
         pk = BossEvent(
             boss_entity_unique_id=1,
             event_type=BOSS_EVENT_TITLE,
@@ -167,7 +167,7 @@ class TestBossEvent:
         assert result.boss_bar_title == "Wither"
 
     def test_roundtrip_texture(self):
-        from pymc.proto.packet.boss_event import BossEvent, BOSS_EVENT_TEXTURE
+        from mcbe.proto.packet.boss_event import BossEvent, BOSS_EVENT_TEXTURE
         pk = BossEvent(
             boss_entity_unique_id=1,
             event_type=BOSS_EVENT_TEXTURE,
@@ -183,7 +183,7 @@ class TestBossEvent:
 
 class TestBookEdit:
     def test_roundtrip_replace_page(self):
-        from pymc.proto.packet.book_edit import BookEdit, BOOK_ACTION_REPLACE_PAGE
+        from mcbe.proto.packet.book_edit import BookEdit, BOOK_ACTION_REPLACE_PAGE
         pk = BookEdit(
             inventory_slot=0,
             action_type=BOOK_ACTION_REPLACE_PAGE,
@@ -198,13 +198,13 @@ class TestBookEdit:
         assert result.photo_name == "photo1"
 
     def test_roundtrip_delete_page(self):
-        from pymc.proto.packet.book_edit import BookEdit, BOOK_ACTION_DELETE_PAGE
+        from mcbe.proto.packet.book_edit import BookEdit, BOOK_ACTION_DELETE_PAGE
         pk = BookEdit(inventory_slot=1, action_type=BOOK_ACTION_DELETE_PAGE, page_number=5)
         result = _roundtrip(pk)
         assert result.page_number == 5
 
     def test_roundtrip_swap_pages(self):
-        from pymc.proto.packet.book_edit import BookEdit, BOOK_ACTION_SWAP_PAGES
+        from mcbe.proto.packet.book_edit import BookEdit, BOOK_ACTION_SWAP_PAGES
         pk = BookEdit(
             inventory_slot=0,
             action_type=BOOK_ACTION_SWAP_PAGES,
@@ -216,7 +216,7 @@ class TestBookEdit:
         assert result.secondary_page_number == 7
 
     def test_roundtrip_sign(self):
-        from pymc.proto.packet.book_edit import BookEdit, BOOK_ACTION_SIGN
+        from mcbe.proto.packet.book_edit import BookEdit, BOOK_ACTION_SIGN
         pk = BookEdit(
             inventory_slot=0,
             action_type=BOOK_ACTION_SIGN,
@@ -234,7 +234,7 @@ class TestBookEdit:
 
 class TestCommandBlockUpdate:
     def test_roundtrip_block(self):
-        from pymc.proto.packet.command_block_update import CommandBlockUpdate, COMMAND_BLOCK_REPEATING
+        from mcbe.proto.packet.command_block_update import CommandBlockUpdate, COMMAND_BLOCK_REPEATING
         pk = CommandBlockUpdate(
             block=True,
             position=BlockPos(10, 64, 20),
@@ -256,7 +256,7 @@ class TestCommandBlockUpdate:
         assert result.command == "say hello"
 
     def test_roundtrip_minecart(self):
-        from pymc.proto.packet.command_block_update import CommandBlockUpdate
+        from mcbe.proto.packet.command_block_update import CommandBlockUpdate
         pk = CommandBlockUpdate(
             block=False,
             minecart_entity_runtime_id=999,
@@ -278,7 +278,7 @@ class TestCommandBlockUpdate:
 
 class TestPlayerLocation:
     def test_roundtrip_coordinates(self):
-        from pymc.proto.packet.player_location import PlayerLocation, PLAYER_LOCATION_TYPE_COORDINATES
+        from mcbe.proto.packet.player_location import PlayerLocation, PLAYER_LOCATION_TYPE_COORDINATES
         pk = PlayerLocation(
             type=PLAYER_LOCATION_TYPE_COORDINATES,
             entity_unique_id=42,
@@ -289,7 +289,7 @@ class TestPlayerLocation:
         assert abs(result.position.x - 10.0) < 0.001
 
     def test_roundtrip_hide(self):
-        from pymc.proto.packet.player_location import PlayerLocation, PLAYER_LOCATION_TYPE_HIDE
+        from mcbe.proto.packet.player_location import PlayerLocation, PLAYER_LOCATION_TYPE_HIDE
         pk = PlayerLocation(type=PLAYER_LOCATION_TYPE_HIDE, entity_unique_id=7)
         result = _roundtrip(pk)
         assert result.type == PLAYER_LOCATION_TYPE_HIDE
@@ -300,7 +300,7 @@ class TestPlayerLocation:
 
 class TestPlayerUpdateEntityOverrides:
     def test_roundtrip_int(self):
-        from pymc.proto.packet.player_update_entity_overrides import (
+        from mcbe.proto.packet.player_update_entity_overrides import (
             PlayerUpdateEntityOverrides, PLAYER_UPDATE_ENTITY_OVERRIDES_TYPE_INT,
         )
         pk = PlayerUpdateEntityOverrides(
@@ -314,7 +314,7 @@ class TestPlayerUpdateEntityOverrides:
         assert result.float_value == 0.0
 
     def test_roundtrip_float(self):
-        from pymc.proto.packet.player_update_entity_overrides import (
+        from mcbe.proto.packet.player_update_entity_overrides import (
             PlayerUpdateEntityOverrides, PLAYER_UPDATE_ENTITY_OVERRIDES_TYPE_FLOAT,
         )
         pk = PlayerUpdateEntityOverrides(
@@ -328,7 +328,7 @@ class TestPlayerUpdateEntityOverrides:
         assert result.int_value == 0
 
     def test_roundtrip_clear_all(self):
-        from pymc.proto.packet.player_update_entity_overrides import (
+        from mcbe.proto.packet.player_update_entity_overrides import (
             PlayerUpdateEntityOverrides, PLAYER_UPDATE_ENTITY_OVERRIDES_TYPE_CLEAR_ALL,
         )
         pk = PlayerUpdateEntityOverrides(
@@ -344,7 +344,7 @@ class TestPlayerUpdateEntityOverrides:
 
 class TestPlayerVideoCapture:
     def test_roundtrip_stop(self):
-        from pymc.proto.packet.player_video_capture import (
+        from mcbe.proto.packet.player_video_capture import (
             PlayerVideoCapture, PLAYER_VIDEO_CAPTURE_ACTION_STOP,
         )
         pk = PlayerVideoCapture(action=PLAYER_VIDEO_CAPTURE_ACTION_STOP)
@@ -354,7 +354,7 @@ class TestPlayerVideoCapture:
         assert result.file_prefix == ""
 
     def test_roundtrip_start(self):
-        from pymc.proto.packet.player_video_capture import (
+        from mcbe.proto.packet.player_video_capture import (
             PlayerVideoCapture, PLAYER_VIDEO_CAPTURE_ACTION_START,
         )
         pk = PlayerVideoCapture(
@@ -371,7 +371,7 @@ class TestPlayerVideoCapture:
 
 class TestClientBoundDebugRenderer:
     def test_roundtrip_clear(self):
-        from pymc.proto.packet.client_bound_debug_renderer import (
+        from mcbe.proto.packet.client_bound_debug_renderer import (
             ClientBoundDebugRenderer, CLIENT_BOUND_DEBUG_RENDERER_CLEAR,
         )
         pk = ClientBoundDebugRenderer(type=CLIENT_BOUND_DEBUG_RENDERER_CLEAR)
@@ -379,7 +379,7 @@ class TestClientBoundDebugRenderer:
         assert result.type == CLIENT_BOUND_DEBUG_RENDERER_CLEAR
 
     def test_roundtrip_add_cube(self):
-        from pymc.proto.packet.client_bound_debug_renderer import (
+        from mcbe.proto.packet.client_bound_debug_renderer import (
             ClientBoundDebugRenderer, CLIENT_BOUND_DEBUG_RENDERER_ADD_CUBE,
         )
         pk = ClientBoundDebugRenderer(
@@ -403,7 +403,7 @@ class TestClientBoundDebugRenderer:
 
 class TestAnimate:
     def test_roundtrip_no_swing_source(self):
-        from pymc.proto.packet.animate import Animate, ANIMATE_ACTION_SWING_ARM
+        from mcbe.proto.packet.animate import Animate, ANIMATE_ACTION_SWING_ARM
         pk = Animate(
             action_type=ANIMATE_ACTION_SWING_ARM,
             entity_runtime_id=5,
@@ -415,7 +415,7 @@ class TestAnimate:
         assert result.swing_source == 0
 
     def test_roundtrip_with_swing_source(self):
-        from pymc.proto.packet.animate import Animate, ANIMATE_ACTION_SWING_ARM, ANIMATE_SWING_SOURCE_ATTACK
+        from mcbe.proto.packet.animate import Animate, ANIMATE_ACTION_SWING_ARM, ANIMATE_SWING_SOURCE_ATTACK
         pk = Animate(
             action_type=ANIMATE_ACTION_SWING_ARM,
             entity_runtime_id=5,
@@ -430,7 +430,7 @@ class TestAnimate:
 
 class TestMoveActorDelta:
     def test_roundtrip_full(self):
-        from pymc.proto.packet.move_actor_delta import (
+        from mcbe.proto.packet.move_actor_delta import (
             MoveActorDelta,
             MOVE_ACTOR_DELTA_FLAG_HAS_X,
             MOVE_ACTOR_DELTA_FLAG_HAS_Y,
@@ -461,7 +461,7 @@ class TestMoveActorDelta:
         assert result.rotation.z == 0.0
 
     def test_roundtrip_partial(self):
-        from pymc.proto.packet.move_actor_delta import (
+        from mcbe.proto.packet.move_actor_delta import (
             MoveActorDelta, MOVE_ACTOR_DELTA_FLAG_HAS_X,
         )
         pk = MoveActorDelta(
@@ -479,7 +479,7 @@ class TestMoveActorDelta:
 
 class TestModalFormResponse:
     def test_roundtrip_with_response(self):
-        from pymc.proto.packet.modal_form_response import ModalFormResponse
+        from mcbe.proto.packet.modal_form_response import ModalFormResponse
         pk = ModalFormResponse(
             form_id=1,
             response_data=b'{"0":1}',
@@ -491,7 +491,7 @@ class TestModalFormResponse:
         assert result.cancel_reason is None
 
     def test_roundtrip_cancelled(self):
-        from pymc.proto.packet.modal_form_response import (
+        from mcbe.proto.packet.modal_form_response import (
             ModalFormResponse, MODAL_FORM_CANCEL_REASON_USER_CLOSED,
         )
         pk = ModalFormResponse(
@@ -508,7 +508,7 @@ class TestModalFormResponse:
 
 class TestSyncWorldClocks:
     def test_roundtrip_remove_time_marker(self):
-        from pymc.proto.packet.sync_world_clocks import (
+        from mcbe.proto.packet.sync_world_clocks import (
             SyncWorldClocks, CLOCK_PAYLOAD_TYPE_REMOVE_TIME_MARKER,
         )
         pk = SyncWorldClocks(
@@ -526,7 +526,7 @@ class TestSyncWorldClocks:
 
 class TestClientBoundAttributeLayerSync:
     def test_roundtrip_remove_environment(self):
-        from pymc.proto.packet.client_bound_attribute_layer_sync import (
+        from mcbe.proto.packet.client_bound_attribute_layer_sync import (
             ClientBoundAttributeLayerSync,
             ATTRIBUTE_LAYER_PAYLOAD_TYPE_REMOVE_ENVIRONMENT,
         )
@@ -546,7 +546,7 @@ class TestClientBoundAttributeLayerSync:
 
 class TestCameraInstruction:
     def test_roundtrip_basic(self):
-        from pymc.proto.packet.camera_instruction import CameraInstruction
+        from mcbe.proto.packet.camera_instruction import CameraInstruction
         pk = CameraInstruction(
             clear=True,
             attach_to_entity=42,

@@ -5,17 +5,17 @@ import os
 
 import pytest
 
-from pymc.conn import Connection
-from pymc.network import TCPNetwork
-from pymc.proto.pool import (
+from mcbe.conn import Connection
+from mcbe.network import TCPNetwork
+from mcbe.proto.pool import (
     COMPRESSION_FLATE,
     server_pool,
 )
 
 # Import to populate pool.
-from pymc.proto.packet.play_status import PlayStatus, STATUS_LOGIN_SUCCESS
-from pymc.proto.packet.disconnect import Disconnect
-from pymc.proto.packet.set_local_player_as_initialised import SetLocalPlayerAsInitialised
+from mcbe.proto.packet.play_status import PlayStatus, STATUS_LOGIN_SUCCESS
+from mcbe.proto.packet.disconnect import Disconnect
+from mcbe.proto.packet.set_local_player_as_initialised import SetLocalPlayerAsInitialised
 
 
 async def _create_pair() -> tuple[Connection, Connection, asyncio.Server]:
@@ -23,14 +23,14 @@ async def _create_pair() -> tuple[Connection, Connection, asyncio.Server]:
     queue: asyncio.Queue = asyncio.Queue()
 
     async def on_connect(reader, writer):
-        from pymc.network import TCPConnection
+        from mcbe.network import TCPConnection
         await queue.put(TCPConnection(reader, writer))
 
     tcp_server = await asyncio.start_server(on_connect, "127.0.0.1", 0)
     port = tcp_server.sockets[0].getsockname()[1]
 
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    from pymc.network import TCPConnection
+    from mcbe.network import TCPConnection
     client_transport = TCPConnection(reader, writer)
     server_transport = await asyncio.wait_for(queue.get(), timeout=2.0)
 
@@ -158,14 +158,14 @@ async def test_context_manager():
     queue: asyncio.Queue = asyncio.Queue()
 
     async def on_connect(reader, writer):
-        from pymc.network import TCPConnection
+        from mcbe.network import TCPConnection
         await queue.put(TCPConnection(reader, writer))
 
     tcp_server = await asyncio.start_server(on_connect, "127.0.0.1", 0)
     port = tcp_server.sockets[0].getsockname()[1]
 
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    from pymc.network import TCPConnection
+    from mcbe.network import TCPConnection
     transport = TCPConnection(reader, writer)
     await queue.get()  # Discard server side
 

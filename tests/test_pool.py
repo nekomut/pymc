@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass
 
-from pymc.proto.io import PacketReader, PacketWriter
-from pymc.proto.pool import (
+from mcbe.proto.io import PacketReader, PacketWriter
+from mcbe.proto.pool import (
     COMPRESSION_FLATE,
     Packet,
     UnknownPacket,

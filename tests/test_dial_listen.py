@@ -4,12 +4,12 @@ import asyncio
 
 import pytest
 
-from pymc.conn import Connection
-from pymc.dial import Dialer
-from pymc.listener import Listener, ListenConfig, listen
-from pymc.network import TCPNetwork
-from pymc.proto.login.data import IdentityData, ClientData
-from pymc.proto.packet.play_status import PlayStatus
+from mcbe.conn import Connection
+from mcbe.dial import Dialer
+from mcbe.listener import Listener, ListenConfig, listen
+from mcbe.network import TCPNetwork
+from mcbe.proto.login.data import IdentityData, ClientData
+from mcbe.proto.packet.play_status import PlayStatus
 
 
 async def _find_free_port() -> int:
@@ -112,7 +112,7 @@ async def test_encrypted_packet_exchange():
         )
 
         # Exchange packets over the encrypted connection.
-        from pymc.proto.packet.set_local_player_as_initialised import (
+        from mcbe.proto.packet.set_local_player_as_initialised import (
             SetLocalPlayerAsInitialised,
         )
 

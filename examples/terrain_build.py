@@ -36,11 +36,11 @@ import time
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from pymc.dial import Dialer
-from pymc.raknet import RakNetNetwork
-from pymc.proto.login.data import IdentityData
-from pymc.proto.packet.command_request import CommandOrigin, CommandRequest, ORIGIN_PLAYER
-from pymc.proto.packet.network_stack_latency import NetworkStackLatency
+from mcbe.dial import Dialer
+from mcbe.raknet import RakNetNetwork
+from mcbe.proto.login.data import IdentityData
+from mcbe.proto.packet.command_request import CommandOrigin, CommandRequest, ORIGIN_PLAYER
+from mcbe.proto.packet.network_stack_latency import NetworkStackLatency
 
 logger = logging.getLogger(__name__)
 
@@ -388,10 +388,10 @@ async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, obje
     Returns:
         (address, login_chain, auth_key, multiplayer_token, network)
     """
-    from pymc.auth.live import get_live_token
-    from pymc.auth.xbox import request_xbl_token
-    from pymc.auth.minecraft import request_minecraft_chain
-    from pymc.realms import RealmsClient
+    from mcbe.auth.live import get_live_token
+    from mcbe.auth.xbox import request_xbl_token
+    from mcbe.auth.minecraft import request_minecraft_chain
+    from mcbe.realms import RealmsClient
 
     live_token = await get_live_token()
 
@@ -423,11 +423,11 @@ async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, obje
 
     if is_nethernet:
         logger.info("NetherNet プロトコル検出: MCToken を取得中...")
-        from pymc.auth.service import discover, request_service_token, request_multiplayer_token
-        from pymc.nethernet import create_network
+        from mcbe.auth.service import discover, request_service_token, request_multiplayer_token
+        from mcbe.nethernet import create_network
 
         # PlayFab 認証: XBL → PlayFab SessionTicket → MCToken
-        from pymc.auth.playfab import login_with_xbox as playfab_login
+        from mcbe.auth.playfab import login_with_xbox as playfab_login
 
         xbl_pf = await request_xbl_token(live_token, "http://playfab.xboxlive.com/")
 

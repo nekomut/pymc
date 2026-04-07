@@ -1,6 +1,6 @@
 """Tests for NBT encode/decode round-trip correctness."""
 
-from pymc.nbt import BigEndian, LittleEndian, NetworkLittleEndian, decode, encode
+from mcbe.nbt import BigEndian, LittleEndian, NetworkLittleEndian, decode, encode
 
 
 class TestNetworkLittleEndian:

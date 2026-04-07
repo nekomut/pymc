@@ -7,7 +7,7 @@ import struct
 
 import pytest
 
-from pymc.raknet.protocol import (
+from mcbe.raknet.protocol import (
     ACK,
     FRAME_SET_MIN,
     NACK,
@@ -32,7 +32,7 @@ from pymc.raknet.protocol import (
     write_address,
     write_uint24le,
 )
-from pymc.raknet.connection import (
+from mcbe.raknet.connection import (
     RakNetClientConnection,
     RakNetClientProtocol,
     RakNetServerConnection,
@@ -239,7 +239,7 @@ async def test_client_server_game_packet():
 
     # Create server
     server_guid = 12345
-    from pymc.raknet.network import RakNetListener
+    from mcbe.raknet.network import RakNetListener
     listener = RakNetListener(server_guid=server_guid)
 
     server_transport, _ = await loop.create_datagram_endpoint(
@@ -333,7 +333,7 @@ async def test_ping_pong():
     """Test RakNet UnconnectedPing/Pong."""
     loop = asyncio.get_running_loop()
 
-    from pymc.raknet.network import RakNetListener
+    from mcbe.raknet.network import RakNetListener
     listener = RakNetListener(server_guid=54321)
 
     server_transport, _ = await loop.create_datagram_endpoint(
@@ -341,12 +341,12 @@ async def test_ping_pong():
         local_addr=("127.0.0.1", 0),
     )
     listener._transport = server_transport
-    listener.set_pong_data(b"MCPE;TestServer;100;1.21.0;0;10;54321;pymc;Survival;1;19132;19132;0;")
+    listener.set_pong_data(b"MCPE;TestServer;100;1.21.0;0;10;54321;mcbe;Survival;1;19132;19132;0;")
 
     server_addr = server_transport.get_extra_info("sockname")
 
     try:
-        from pymc.raknet.network import RakNetNetwork
+        from mcbe.raknet.network import RakNetNetwork
         network = RakNetNetwork(client_guid=11111)
         pong = await network.ping(f"{server_addr[0]}:{server_addr[1]}")
         assert b"MCPE" in pong

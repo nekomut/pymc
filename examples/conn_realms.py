@@ -1,7 +1,7 @@
 import asyncio
-from pymc.auth.live import get_live_token
-from pymc.auth.xbox import request_xbl_token
-from pymc.realms import RealmsClient
+from mcbe.auth.live import get_live_token
+from mcbe.auth.xbox import request_xbl_token
+from mcbe.realms import RealmsClient
 
 async def main():
     # 1. 認証（キャッシュ付き）

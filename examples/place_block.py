@@ -19,24 +19,24 @@ import logging
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from pymc.dial import Dialer
-from pymc.proto.login.data import IdentityData
-from pymc.proto.packet.command_request import CommandOrigin, CommandRequest, ORIGIN_PLAYER
-from pymc.raknet import RakNetNetwork
+from mcbe.dial import Dialer
+from mcbe.proto.login.data import IdentityData
+from mcbe.proto.packet.command_request import CommandOrigin, CommandRequest, ORIGIN_PLAYER
+from mcbe.raknet import RakNetNetwork
 
 logger = logging.getLogger(__name__)
 
 
 async def resolve_realms(invite_code: str | None = None):
     """Realms に認証して接続情報を返す."""
-    from pymc.auth.live import get_live_token
-    from pymc.auth.xbox import request_xbl_token
-    from pymc.auth.minecraft import request_minecraft_chain
+    from mcbe.auth.live import get_live_token
+    from mcbe.auth.xbox import request_xbl_token
+    from mcbe.auth.minecraft import request_minecraft_chain
 
     live_token = await get_live_token()
 
     # Realms API
-    from pymc.realms import RealmsClient
+    from mcbe.realms import RealmsClient
     xbl_realms = await request_xbl_token(live_token, "https://pocket.realms.minecraft.net/")
     async with RealmsClient(xbl_realms) as client:
         if invite_code:
@@ -58,9 +58,9 @@ async def resolve_realms(invite_code: str | None = None):
     multiplayer_token = ""
 
     if is_nethernet:
-        from pymc.auth.service import discover, request_service_token, request_multiplayer_token
-        from pymc.auth.playfab import login_with_xbox as playfab_login
-        from pymc.nethernet import create_network
+        from mcbe.auth.service import discover, request_service_token, request_multiplayer_token
+        from mcbe.auth.playfab import login_with_xbox as playfab_login
+        from mcbe.nethernet import create_network
 
         xbl_pf = await request_xbl_token(live_token, "http://playfab.xboxlive.com/")
         discovery = await discover()
@@ -104,7 +104,7 @@ async def main(
         network = RakNetNetwork()
 
     dialer = Dialer(
-        identity_data=IdentityData(display_name="pymc"),
+        identity_data=IdentityData(display_name="mcbe"),
         network=network,
         login_chain=login_chain,
         auth_key=auth_key,

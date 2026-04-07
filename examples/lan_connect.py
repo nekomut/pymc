@@ -1,7 +1,7 @@
 import asyncio
-from pymc.dial import Dialer
-from pymc.raknet import RakNetNetwork
-from pymc.proto.login.data import IdentityData
+from mcbe.dial import Dialer
+from mcbe.raknet import RakNetNetwork
+from mcbe.proto.login.data import IdentityData
 
 async def main():
     # 1. RakNet で LAN サーバーを Ping して存在確認 (任意)

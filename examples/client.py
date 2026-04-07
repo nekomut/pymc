@@ -17,9 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pymc.dial import Dialer
-from pymc.proto.login.data import IdentityData
-from pymc.proto.pool import UnknownPacket
+from mcbe.dial import Dialer
+from mcbe.proto.login.data import IdentityData
+from mcbe.proto.pool import UnknownPacket
 
 logging.basicConfig(
     level=logging.INFO,

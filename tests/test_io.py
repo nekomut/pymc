@@ -3,8 +3,8 @@
 import math
 from uuid import UUID
 
-from pymc.proto.io import PacketReader, PacketWriter
-from pymc.proto.types import RGBA, BlockPos, ChunkPos, SubChunkPos, Vec2, Vec3
+from mcbe.proto.io import PacketReader, PacketWriter
+from mcbe.proto.types import RGBA, BlockPos, ChunkPos, SubChunkPos, Vec2, Vec3
 
 
 def _roundtrip_primitive(write_method: str, read_method: str, value):

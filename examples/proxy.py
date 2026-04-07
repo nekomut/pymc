@@ -22,12 +22,12 @@ from pathlib import Path
 # Add src to path for development.
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pymc.conn import Connection
-from pymc.dial import Dialer
-from pymc.listener import ListenConfig, listen
-from pymc.network import TCPNetwork
-from pymc.proto.login.data import IdentityData
-from pymc.proto.pool import Packet, UnknownPacket
+from mcbe.conn import Connection
+from mcbe.dial import Dialer
+from mcbe.listener import ListenConfig, listen
+from mcbe.network import TCPNetwork
+from mcbe.proto.login.data import IdentityData
+from mcbe.proto.pool import Packet, UnknownPacket
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,7 +108,7 @@ async def run_proxy(listen_addr: str, remote_addr: str) -> None:
     """Run the MITM proxy."""
     network = TCPNetwork()
     config = ListenConfig(
-        server_name="pymc Proxy",
+        server_name="mcbe Proxy",
         authentication_disabled=True,
     )
 

@@ -1,6 +1,6 @@
 import argparse
 import asyncio
-from pymc.raknet import RakNetNetwork
+from mcbe.raknet import RakNetNetwork
 
 
 async def diagnose(lan_address: str) -> None:

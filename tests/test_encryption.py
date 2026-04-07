@@ -4,7 +4,7 @@ import os
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from pymc.proto.encryption import (
+from mcbe.proto.encryption import (
     PacketDecrypt,
     PacketEncrypt,
     compute_shared_secret,

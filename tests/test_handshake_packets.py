@@ -2,26 +2,26 @@
 
 from uuid import UUID
 
-from pymc.proto.io import PacketReader, PacketWriter
-from pymc.proto.pool import decode_packet, encode_packet, server_pool
+from mcbe.proto.io import PacketReader, PacketWriter
+from mcbe.proto.pool import decode_packet, encode_packet, server_pool
 
-from pymc.proto.packet.request_network_settings import RequestNetworkSettings
-from pymc.proto.packet.network_settings import NetworkSettings
-from pymc.proto.packet.login import Login
-from pymc.proto.packet.play_status import PlayStatus, STATUS_LOGIN_SUCCESS, STATUS_PLAYER_SPAWN
-from pymc.proto.packet.handshake import ServerToClientHandshake, ClientToServerHandshake
-from pymc.proto.packet.disconnect import Disconnect
-from pymc.proto.packet.resource_packs import (
+from mcbe.proto.packet.request_network_settings import RequestNetworkSettings
+from mcbe.proto.packet.network_settings import NetworkSettings
+from mcbe.proto.packet.login import Login
+from mcbe.proto.packet.play_status import PlayStatus, STATUS_LOGIN_SUCCESS, STATUS_PLAYER_SPAWN
+from mcbe.proto.packet.handshake import ServerToClientHandshake, ClientToServerHandshake
+from mcbe.proto.packet.disconnect import Disconnect
+from mcbe.proto.packet.resource_packs import (
     ResourcePacksInfo, ResourcePackStack, ResourcePackClientResponse,
     TexturePackInfo, StackResourcePack, ExperimentData,
     PACK_RESPONSE_COMPLETED, PACK_RESPONSE_ALL_PACKS_DOWNLOADED,
 )
-from pymc.proto.packet.text import (
+from mcbe.proto.packet.text import (
     Text, TEXT_TYPE_CHAT, TEXT_TYPE_RAW, TEXT_TYPE_TRANSLATION, TEXT_TYPE_TIP,
 )
-from pymc.proto.packet.set_local_player_as_initialised import SetLocalPlayerAsInitialised
-from pymc.proto.packet.request_chunk_radius import RequestChunkRadius
-from pymc.proto.packet.chunk_radius_updated import ChunkRadiusUpdated
+from mcbe.proto.packet.set_local_player_as_initialised import SetLocalPlayerAsInitialised
+from mcbe.proto.packet.request_chunk_radius import RequestChunkRadius
+from mcbe.proto.packet.chunk_radius_updated import ChunkRadiusUpdated
 
 
 def _roundtrip(pk):
