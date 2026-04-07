@@ -26,7 +26,7 @@ import urllib.request
 import numpy as np
 from matplotlib.path import Path
 
-LOCAL_CONFIG = os.path.join(os.path.dirname(__file__), "local.json")
+LOCAL_CONFIG = os.path.join(os.path.dirname(__file__), "terrain.config.json")
 
 
 def load_local_config() -> dict:

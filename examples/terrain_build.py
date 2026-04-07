@@ -18,7 +18,7 @@ Realms 接続には Xbox Live 認証が必要 (初回実行時にブラウザで
 Usage:
     # BDS (ローカルサーバー) に接続
     python examples/terrain_gen.py --lat 36.104665 --lon 140.087099  # Step 1
-    python examples/terrain_build.py --address 127.0.0.1:19132 --bots 4  # Step 2
+    python examples/terrain_build.py --bds-address 127.0.0.1:19132 --bots 4  # Step 2
 
     # Realms に接続 (Xbox Live 認証)
     python examples/terrain_build.py --realms --bots 4
@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import csv
 import json
 import logging
 import os
@@ -45,10 +44,8 @@ from pymc.proto.packet.network_stack_latency import NetworkStackLatency
 
 logger = logging.getLogger(__name__)
 
-LOCAL_CONFIG = os.path.join(os.path.dirname(__file__), "local.json")
+LOCAL_CONFIG = os.path.join(os.path.dirname(__file__), "terrain.config.json")
 TERRAIN_JSON = os.path.join(os.path.dirname(__file__), "terrain.json")
-HEIGHTMAP_CSV = os.path.join(os.path.dirname(__file__), "heightmap.csv")
-BUILDINGMAP_CSV = os.path.join(os.path.dirname(__file__), "buildingmap.csv")
 PROGRESS_FILE = os.path.join(os.path.dirname(__file__), "heightmap.progress")
 BUILDING_PROGRESS_FILE = os.path.join(os.path.dirname(__file__), "building.progress")
 BUILDING_BLOCK_TYPE = "quartz_block"
@@ -84,8 +81,8 @@ def extract_gamertag(login_chain: str) -> str:
     return ""
 
 
-def load_terrain(json_path: str, csv_path: str) -> tuple[list[list[int]], list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, int, int]:
-    """地形データを読み込む. JSON があれば優先、なければ CSV にフォールバック.
+def load_terrain(json_path: str) -> tuple[list[list[int]], list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, list[list[int]] | None, int, int]:
+    """terrain.json から地形データを読み込む.
 
     Returns: (heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, roadcatmap, x_offset, z_offset)
     x_offset/z_offset は heightmap[0][0] の MC 座標。
@@ -94,32 +91,18 @@ def load_terrain(json_path: str, csv_path: str) -> tuple[list[list[int]], list[l
     centerlinemap: 道路中心線 = 1 (None なら中心線なし)。
     roadcatmap: 主要道路(rdCtg 0-3) = 1 (None なら情報なし)。
     """
-    if os.path.exists(json_path):
-        with open(json_path) as f:
-            data = json.load(f)
-        heightmap = data["heightmap"]
-        buildingmap = data.get("buildingmap")
-        surfacemap = data.get("surfacemap")
-        bridgemap = data.get("bridgemap")
-        centerlinemap = data.get("centerlinemap")
-        roadcatmap = data.get("roadcatmap")
-        mc_start = data.get("mc_start", {})
-        x_off = mc_start.get("x", 0)
-        z_off = mc_start.get("z", 0)
-        return heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, roadcatmap, x_off, z_off
-
-    # CSV フォールバック
-    heightmap = []
-    with open(csv_path) as f:
-        for row in csv.reader(f):
-            heightmap.append([int(v) for v in row])
-    buildingmap = None
-    if os.path.exists(BUILDINGMAP_CSV):
-        buildingmap = []
-        with open(BUILDINGMAP_CSV) as f:
-            for row in csv.reader(f):
-                buildingmap.append([int(v) for v in row])
-    return heightmap, buildingmap, None, None, None, None, 0, 0
+    with open(json_path) as f:
+        data = json.load(f)
+    heightmap = data["heightmap"]
+    buildingmap = data.get("buildingmap")
+    surfacemap = data.get("surfacemap")
+    bridgemap = data.get("bridgemap")
+    centerlinemap = data.get("centerlinemap")
+    roadcatmap = data.get("roadcatmap")
+    mc_start = data.get("mc_start", {})
+    x_off = mc_start.get("x", 0)
+    z_off = mc_start.get("z", 0)
+    return heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, roadcatmap, x_off, z_off
 
 
 def load_progress(path: str) -> set[int]:
@@ -527,11 +510,10 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
     else:
         logger.info("NetherNet 接続: ping スキップ")
 
-    heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, roadcatmap, x_offset, z_offset = load_terrain(TERRAIN_JSON, HEIGHTMAP_CSV)
+    heightmap, buildingmap, surfacemap, bridgemap, centerlinemap, roadcatmap, x_offset, z_offset = load_terrain(TERRAIN_JSON)
     size_z = len(heightmap)
     size_x = len(heightmap[0])
-    source = "JSON" if os.path.exists(TERRAIN_JSON) else "CSV"
-    logger.info("高さマップ: %dx%d (%s)", size_x, size_z, source)
+    logger.info("高さマップ: %dx%d", size_x, size_z)
     if x_offset or z_offset:
         logger.info("オフセット: X=%d, Z=%d", x_offset, z_offset)
 
@@ -676,7 +658,7 @@ if __name__ == "__main__":
         with open(LOCAL_CONFIG) as f:
             cfg = json.load(f)
     parser = argparse.ArgumentParser(description="DEM地形をMinecraftに配置する")
-    parser.add_argument("--address", default=cfg.get("address", "127.0.0.1:19132"))
+    parser.add_argument("--bds-address", default=cfg.get("bds_address", "127.0.0.1:19132"), help="BDS サーバーアドレス (default: 127.0.0.1:19132)")
     parser.add_argument("--bots", type=int, default=4, help="並列ボット数 (default: 4, max: 26)")
     parser.add_argument("--reset", action="store_true", help="進捗をリセットして最初からやり直す")
     parser.add_argument("--no-road", action="store_true", help="道路・橋配置をスキップする")
@@ -687,4 +669,4 @@ if __name__ == "__main__":
     parser.add_argument("--realms", action="store_true", help="Realms に接続する（1ボット、Xbox Live 認証）")
     parser.add_argument("--invite-code", default=None, help="Realm の招待コード（省略時は最初の Realm）")
     args = parser.parse_args()
-    asyncio.run(main(args.address, args.bots, reset=args.reset, no_road=args.no_road, no_building=args.no_building, only_road=args.only_road, only_building=args.only_building, only_centerline=args.only_centerline, realms=args.realms, invite_code=args.invite_code))
+    asyncio.run(main(args.bds_address, args.bots, reset=args.reset, no_road=args.no_road, no_building=args.no_building, only_road=args.only_road, only_building=args.only_building, only_centerline=args.only_centerline, realms=args.realms, invite_code=args.invite_code))

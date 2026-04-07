@@ -11,4 +11,4 @@ venv/
 .mypy_cache/
 .DS_Store
 *.so
-examples/local.json
+examples/terrain.config.json

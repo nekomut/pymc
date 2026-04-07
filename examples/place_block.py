@@ -131,7 +131,7 @@ async def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="指定座標にブロックを配置する")
-    parser.add_argument("--address", default="127.0.0.1:19132", help="BDS アドレス")
+    parser.add_argument("--bds-address", default="127.0.0.1:19132", help="BDS サーバーアドレス (default: 127.0.0.1:19132)")
     parser.add_argument("--x", type=int, default=0, help="X 座標 (default: 0)")
     parser.add_argument("--y", type=int, default=70, help="Y 座標 (default: 70)")
     parser.add_argument("--z", type=int, default=0, help="Z 座標 (default: 0)")
@@ -139,4 +139,4 @@ if __name__ == "__main__":
     parser.add_argument("--realms", action="store_true", help="Realms に接続")
     parser.add_argument("--invite-code", help="Realm 招待コード")
     args = parser.parse_args()
-    asyncio.run(main(args.address, args.x, args.y, args.z, args.block, realms=args.realms, invite_code=args.invite_code))
+    asyncio.run(main(args.bds_address, args.x, args.y, args.z, args.block, realms=args.realms, invite_code=args.invite_code))
