@@ -110,7 +110,8 @@ class Dialer:
         # Detect NetherNet transport (WebRTC): skip batch header and
         # Minecraft-layer encryption (DTLS handles encryption).
         from pymc.nethernet.conn import NetherNetConn
-        is_nethernet = isinstance(transport, NetherNetConn)
+        from pymc.nethernet.ldc_network import LdcNetherNetConn
+        is_nethernet = isinstance(transport, (NetherNetConn, LdcNetherNetConn))
 
         pool = server_pool()
         conn = Connection(
@@ -121,7 +122,7 @@ class Dialer:
         await conn.start()
 
         try:
-            await self._handshake(conn, private_key, address)
+            await self._handshake(conn, private_key, address, is_nethernet=is_nethernet)
         except Exception:
             await conn.close()
             raise
@@ -130,7 +131,7 @@ class Dialer:
 
     async def _handshake(
         self, conn: Connection, private_key: ec.EllipticCurvePrivateKey,
-        address: str = "",
+        address: str = "", *, is_nethernet: bool = False,
     ) -> None:
         """Perform the full client login handshake."""
         # 1. Send RequestNetworkSettings.
@@ -147,10 +148,13 @@ class Dialer:
         if not self.client_data.third_party_name:
             self.client_data.third_party_name = self.identity_data.display_name
         if self.login_chain:
-            # Authenticated login: enforce Android device data to match
-            # the titleId in the Xbox Live JWT chain (same as gophertunnel).
-            self.client_data.device_os = 1  # Android
-        if self.login_chain:
+            self.client_data.game_version = "1.26.12"
+
+            # ViaBedrock does NOT include PlayFabId in ClientData JWT.
+            # Clear it to match — the server gets PlayFabId from the
+            # multiplayer token's "mid" claim instead.
+            self.client_data.playfab_id = ""
+
             connection_request = encode_authenticated(
                 self.login_chain, self.client_data, private_key,
                 multiplayer_token=self.multiplayer_token,
@@ -189,7 +193,7 @@ class Dialer:
             pk = await self._expect(conn, PlayStatus, timeout=10.0)
             logger.info("handshake: PlayStatus=%d", pk.status)
 
-        # 5c. Send ClientCacheStatus (required by server before ResourcePacksInfo).
+        # 5c. Send ClientCacheStatus (ViaBedrock sends this for all transports).
         from pymc.proto.packet.client_cache_status import ClientCacheStatus
         await conn.write_packet(ClientCacheStatus(enabled=False))
         await conn.flush()
@@ -238,7 +242,9 @@ class Dialer:
 
         conn.enable_encryption(key)
 
-    async def _handle_resource_packs(self, conn: Connection) -> None:
+    async def _handle_resource_packs(
+        self, conn: Connection, *, skip_ready_for_validation: bool = False,
+    ) -> None:
         """Handle resource pack negotiation."""
         # Wait for ResourcePacksInfo.
         pk = await self._expect(conn, ResourcePacksInfo, timeout=10.0)
@@ -260,8 +266,19 @@ class Dialer:
         )
         await conn.flush()
 
+        if not skip_ready_for_validation:
+            # Inform server that resource packs are loaded (protocol 944+).
+            from pymc.proto.packet.resource_packs_ready_for_validation import (
+                ResourcePacksReadyForValidation,
+            )
+            await conn.write_packet(ResourcePacksReadyForValidation())
+            await conn.flush()
+
     async def _wait_for_spawn(self, conn: Connection) -> None:
         """Wait for the spawn sequence to complete."""
+        from pymc.proto.packet.disconnect import Disconnect
+        from pymc.proto.packet.packet_violation_warning import PacketViolationWarning
+
         # Read packets until we get PlayStatus(PLAYER_SPAWN) or
         # ChunkRadiusUpdated, whichever indicates spawn is ready.
         # Send RequestChunkRadius when we receive StartGame (or similar).
@@ -269,7 +286,15 @@ class Dialer:
 
         while True:
             pk = await asyncio.wait_for(conn.read_packet(), timeout=30.0)
-            logger.debug("spawn: received %s", type(pk).__name__)
+            logger.info("spawn: received %s (id=%d)", type(pk).__name__, pk.packet_id)
+
+            if isinstance(pk, Disconnect):
+                logger.error("spawn: Disconnect reason=%d message=%s", pk.reason, pk.message)
+                raise ConnectionError(f"server disconnected: {pk.message}")
+
+            if isinstance(pk, PacketViolationWarning):
+                logger.error("spawn: PacketViolationWarning type=%d severity=%d packet=%d ctx=%s",
+                             pk.violation_type, pk.severity, pk.violating_packet_id, pk.violation_context)
 
             if isinstance(pk, PlayStatus):
                 logger.info("spawn: PlayStatus=%d", pk.status)
@@ -312,7 +337,8 @@ class Dialer:
                              packet_type.__name__, pk.violation_type, pk.severity,
                              pk.violating_packet_id, pk.violation_context)
             else:
-                logger.debug("skipping unexpected packet: %s", type(pk).__name__)
+                logger.warning("skipping unexpected packet while expecting %s: %s (id=%d)",
+                             packet_type.__name__, type(pk).__name__, pk.packet_id)
 
     @staticmethod
     async def _expect_any(
@@ -333,4 +359,5 @@ class Dialer:
             elif isinstance(pk, Disconnect):
                 logger.error("Disconnect: reason=%d message=%s", pk.reason, pk.message)
             else:
-                logger.debug("skipping unexpected packet: %s", type(pk).__name__)
+                logger.warning("skipping unexpected packet while expecting %s: %s (id=%d)",
+                             tuple(t.__name__ for t in packet_types), type(pk).__name__, pk.packet_id)

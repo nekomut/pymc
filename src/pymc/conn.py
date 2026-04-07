@@ -129,6 +129,7 @@ class Connection:
 
     async def write_packet(self, pk: Packet) -> None:
         """Buffer a packet for sending. It will be flushed automatically."""
+        logger.info("queue packet: %s (id=%d)", type(pk).__name__, pk.packet_id)
         data = encode_packet(pk)
         async with self._send_lock:
             self._send_buffer.append(data)
@@ -140,6 +141,7 @@ class Connection:
                 return
             to_send = self._send_buffer
             self._send_buffer = []
+        logger.info("flush: %d packet(s)", len(to_send))
 
         batch = bytearray(
             encode_batch(
@@ -174,7 +176,28 @@ class Connection:
 
     async def read_packet(self) -> Packet:
         """Read the next packet. Blocks until a packet is available."""
-        return await self._recv_queue.get()
+        # Return queued packets first, even after close.
+        try:
+            return self._recv_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        if self._close_event.is_set():
+            raise ConnectionError("connection closed")
+        # Race between receiving a packet and the connection closing.
+        get_task = asyncio.ensure_future(self._recv_queue.get())
+        close_task = asyncio.ensure_future(self._close_event.wait())
+        done, pending = await asyncio.wait(
+            [get_task, close_task], return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+        if get_task in done:
+            return get_task.result()
+        # Drain any remaining packets before raising.
+        try:
+            return self._recv_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            raise ConnectionError("connection closed")
 
     def read_packet_nowait(self) -> Packet | None:
         """Read the next packet if available, else return None."""
@@ -258,6 +281,9 @@ class Connection:
 
         except asyncio.CancelledError:
             pass
+        finally:
+            # Signal EOF to readers so they don't hang forever.
+            self._close_event.set()
 
     def _decode_raw_batch(self, raw: bytes) -> list[Packet]:
         """Decode a raw batch (decrypt if needed, decompress, parse packets)."""

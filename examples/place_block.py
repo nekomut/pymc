@@ -133,9 +133,9 @@ def save_progress_line(path: str, z: int) -> None:
         f.write(f"{z}\n")
 
 
-async def connect_bot(bot_id: int, address: str, *, login_chain: str | None = None, auth_key=None, multiplayer_token: str = "", network=None) -> tuple:
+async def connect_bot(bot_id: int, address: str, *, login_chain: str | None = None, auth_key=None, multiplayer_token: str = "", network=None, gamertag: str = "") -> tuple:
     """1体のボットを接続してコネクションを返す."""
-    name = BOT_NAMES[bot_id]
+    name = gamertag or BOT_NAMES[bot_id]
     log = logging.getLogger(f"bot.{name}")
 
     if network is None:
@@ -433,17 +433,28 @@ async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, obje
     if is_nethernet:
         logger.info("NetherNet プロトコル検出: MCToken を取得中...")
         from pymc.auth.service import discover, request_service_token, request_multiplayer_token
-        from pymc.nethernet.network import NetherNetNetwork
+        from pymc.nethernet.ldc_network import LdcNetherNetNetwork
 
-        # XBL トークン (PlayFab relying party) — PlayFab を経由せず直接使用
-        xbl_pf = await request_xbl_token(live_token, "rp://playfabapi.com/")
+        # PlayFab 認証: XBL → PlayFab SessionTicket → MCToken
+        from pymc.auth.playfab import login_with_xbox as playfab_login
 
-        # Discovery (環境自動解決) + MCToken + signaling info
+        xbl_pf = await request_xbl_token(live_token, "http://playfab.xboxlive.com/")
+
+        # Discovery (環境自動解決)
         discovery = await discover()
+
+        # PlayFab SessionTicket 取得
+        playfab_ticket = await playfab_login(
+            xbl_pf, title_id=discovery.playfab_title_id,
+        )
+        logger.info("PlayFab SessionTicket 取得完了")
+
+        # MCToken (PlayFab tokenType で取得)
         service_token = await request_service_token(
             discovery.auth_uri,
             xbl_pf.auth_header_value(),
             playfab_title_id=discovery.playfab_title_id,
+            playfab_session_ticket=playfab_ticket,
         )
         signaling_info = discovery.signaling_info
         logger.info("MCToken 取得完了")
@@ -457,8 +468,8 @@ async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, obje
         )
         logger.info("Multiplayer token 取得完了")
 
-        # NetherNet ネットワーク (ランダム network_id)
-        network = NetherNetNetwork(
+        # NetherNet ネットワーク (libdatachannel ネイティブ実装)
+        network = LdcNetherNetNetwork(
             mc_token=service_token.authorization_header,
             signaling_url=signaling_info.service_uri,
             use_jsonrpc=is_jsonrpc,
@@ -479,6 +490,9 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    # Enable SCTP/DataChannel debug logging for diagnostics.
+    logging.getLogger("aiortc.rtcsctptransport").setLevel(logging.DEBUG)
+    logging.getLogger("aiortc.rtcdatachannel").setLevel(logging.DEBUG)
 
     if num_bots < 1 or num_bots > 26:
         logger.error("ボット数は 1~26 で指定してください")
@@ -603,7 +617,7 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
         read_tasks = []
         for i in range(actual_bots):
             logger.info("接続中: %s (%d/%d)...", bot_names[i], i + 1, actual_bots)
-            conn = await connect_bot(i, address, login_chain=login_chain, auth_key=auth_key, multiplayer_token=multiplayer_token, network=realms_network)
+            conn = await connect_bot(i, address, login_chain=login_chain, auth_key=auth_key, multiplayer_token=multiplayer_token, network=realms_network, gamertag=realms_gamertag or "")
             read_task = start_read_task(conn)
             connections.append(conn)
             read_tasks.append(read_task)

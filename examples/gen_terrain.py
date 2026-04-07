@@ -148,7 +148,7 @@ def fetch_dem(origin_lat: float, origin_lon: float,
     lat_max = origin_lat - mc_z_start / blocks_per_deg_lat   # 北
     lat_min = origin_lat - (mc_z_start + nz) / blocks_per_deg_lat  # 南
 
-    margin = 0.002
+    margin = 0.005
     z = DEM_ZOOM
     tx_min, _ = latlon_to_tile(lat_max + margin, lon_min - margin, z)
     tx_max, _ = latlon_to_tile(lat_min - margin, lon_max + margin, z)
@@ -231,7 +231,7 @@ def _fetch_vector_tiles(origin_lat: float, origin_lon: float,
     lat_max = origin_lat - mc_z_start / blocks_per_deg_lat
     lat_min = origin_lat - (mc_z_start + nz) / blocks_per_deg_lat
 
-    margin = 0.001
+    margin = 0.005
     tx_min, _ = latlon_to_tile(lat_max + margin, lon_min - margin, zoom)
     tx_max, _ = latlon_to_tile(lat_min - margin, lon_max + margin, zoom)
     _, ty_min = latlon_to_tile(lat_max + margin, lon_min - margin, zoom)

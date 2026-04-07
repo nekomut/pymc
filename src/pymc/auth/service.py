@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 DISCOVERY_URL = "https://client.discovery.minecraft-services.net"
-GAME_VERSION = "1.26.12"
+GAME_VERSION = "1.26.10"
 
 logger = logging.getLogger(__name__)
 
@@ -190,20 +190,31 @@ async def request_service_token(
     playfab_title_id: str = "20CA2",
     version: str = GAME_VERSION,
     session: aiohttp.ClientSession | None = None,
+    *,
+    playfab_session_ticket: str = "",
 ) -> ServiceToken:
     """Obtain a service token (MCToken) from the authorization service.
 
     Args:
         service_uri: Authorization service base URI from Discovery.
-        xbox_token: Raw Xbox Live XSTS token string.
+        xbox_token: Raw Xbox Live XSTS token string (used if no PlayFab ticket).
         playfab_title_id: PlayFab title ID from Discovery.
         version: Game build version string.
         session: Optional aiohttp session to reuse.
+        playfab_session_ticket: PlayFab session ticket. If provided, uses
+            PlayFab authentication (matching gophertunnel's flow).
 
     Returns:
         A :class:`ServiceToken` containing the authorization header JWT.
     """
     url = f"{service_uri}/api/v1.0/session/start"
+
+    if playfab_session_ticket:
+        user_token = playfab_session_ticket
+        token_type = "PlayFab"
+    else:
+        user_token = xbox_token
+        token_type = "Xbox"
 
     body = {
         "device": {
@@ -222,8 +233,8 @@ async def request_service_token(
             "language": "en",
             "languageCode": "en-US",
             "regionCode": "US",
-            "token": xbox_token,
-            "tokenType": "Xbox",
+            "token": user_token,
+            "tokenType": token_type,
         },
     }
 

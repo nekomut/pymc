@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 )
 from cryptography.hazmat.primitives.hashes import SHA256
 
-from pymc.auth.live import Config, Token, server_time, update_server_time, ANDROID_CONFIG
+from pymc.auth.live import Config, Token, server_time, update_server_time, ANDROID_CONFIG, NINTENDO_CONFIG, WIN32_CONFIG
 
 
 DEVICE_AUTH_URL = "https://device.auth.xboxlive.com/device/authenticate"
@@ -143,21 +143,12 @@ def _sign_request(
     return base64.b64encode(header_bytes).decode()
 
 
-async def request_device_token(
-    config: Config | None = None,
-    session: aiohttp.ClientSession | None = None,
+async def _request_device_token_single(
+    config: Config,
+    session: aiohttp.ClientSession,
 ) -> _DeviceToken:
-    """Request a device token from Xbox Live.
-
-    Args:
-        config: Device configuration. Defaults to ANDROID_CONFIG.
-        session: HTTP session.
-
-    Returns:
-        A _DeviceToken with proof key.
-    """
-    if config is None:
-        config = ANDROID_CONFIG
+    """Request a device token from Xbox Live using a specific config."""
+    import json
 
     key = _generate_proof_key()
     body = {
@@ -172,38 +163,128 @@ async def request_device_token(
         },
     }
 
+    body_bytes = json.dumps(body).encode()
+    path = "/device/authenticate"
+    sig = _sign_request("POST", path, body_bytes, "", key)
+
+    async with session.post(
+        DEVICE_AUTH_URL,
+        data=body_bytes,
+        headers={
+            "Content-Type": "application/json",
+            "Signature": sig,
+            "x-xbl-contract-version": "1",
+        },
+    ) as resp:
+        update_server_time(dict(resp.headers))
+        if resp.status != 200:
+            err_body = await resp.text()
+            raise RuntimeError(f"device auth failed: {resp.status} {err_body}")
+        data = await resp.json(content_type=None)
+        return _DeviceToken(
+            token=data["Token"],
+            issue_instant=data.get("IssueInstant", ""),
+            not_after=data.get("NotAfter", ""),
+            proof_key=key,
+        )
+
+
+# Fallback device configs when primary config is rate-limited.
+_FALLBACK_CONFIGS = [ANDROID_CONFIG, NINTENDO_CONFIG, WIN32_CONFIG]
+
+
+async def request_device_token(
+    config: Config | None = None,
+    session: aiohttp.ClientSession | None = None,
+) -> _DeviceToken:
+    """Request a device token from Xbox Live.
+
+    Tries the primary config first, then falls back to alternative device
+    types if rate-limited (HTTP 400 with empty body).
+
+    Args:
+        config: Device configuration. Defaults to ANDROID_CONFIG.
+        session: HTTP session.
+
+    Returns:
+        A _DeviceToken with proof key.
+    """
+    if config is None:
+        config = ANDROID_CONFIG
+
     own_session = session is None
     if own_session:
         session = aiohttp.ClientSession()
     try:
-        import json
-        body_bytes = json.dumps(body).encode()
-        path = "/device/authenticate"
-        sig = _sign_request("POST", path, body_bytes, "", key)
+        # Try primary config first.
+        try:
+            return await _request_device_token_single(config, session)
+        except RuntimeError:
+            pass
 
-        async with session.post(
-            DEVICE_AUTH_URL,
-            data=body_bytes,
-            headers={
-                "Content-Type": "application/json",
-                "Signature": sig,
-                "x-xbl-contract-version": "1",
-            },
-        ) as resp:
-            update_server_time(dict(resp.headers))
-            if resp.status != 200:
-                err_body = await resp.text()
-                raise RuntimeError(f"device auth failed: {resp.status} {err_body}")
-            data = await resp.json(content_type=None)
-            return _DeviceToken(
-                token=data["Token"],
-                issue_instant=data.get("IssueInstant", ""),
-                not_after=data.get("NotAfter", ""),
-                proof_key=key,
-            )
+        # Fallback to other device types.
+        for fallback in _FALLBACK_CONFIGS:
+            if fallback.device_type == config.device_type:
+                continue
+            try:
+                return await _request_device_token_single(fallback, session)
+            except RuntimeError:
+                continue
+
+        raise RuntimeError("device auth failed: all device types rate-limited")
     finally:
         if own_session:
             await session.close()
+
+
+async def _sisu_authorize(
+    live_token: Token,
+    relying_party: str,
+    device: _DeviceToken,
+    app_id: str,
+    session: aiohttp.ClientSession,
+) -> XBLToken:
+    """Perform SISU authorization with a device token."""
+    import json
+
+    body = {
+        "AccessToken": "t=" + live_token.access_token,
+        "AppId": app_id,
+        "DeviceToken": device.token,
+        "Sandbox": "RETAIL",
+        "UseModernGamertag": True,
+        "SiteName": "user.auth.xboxlive.com",
+        "RelyingParty": relying_party,
+        "ProofKey": _proof_key_json(device.proof_key),
+    }
+    body_bytes = json.dumps(body).encode()
+    sig = _sign_request("POST", "/authorize", body_bytes, "", device.proof_key)
+
+    async with session.post(
+        SISU_AUTHORIZE_URL,
+        data=body_bytes,
+        headers={
+            "Content-Type": "application/json",
+            "Signature": sig,
+            "x-xbl-contract-version": "1",
+        },
+    ) as resp:
+        update_server_time(dict(resp.headers))
+        if resp.status != 200:
+            error_code = resp.headers.get("x-err", "")
+            msg = _parse_xbox_error(error_code) if error_code else str(resp.status)
+            raise RuntimeError(f"XBL auth failed: {msg}")
+        data = await resp.json(content_type=None)
+        auth = data.get("AuthorizationToken", {})
+        user_info = auth.get("DisplayClaims", {}).get("xui", [{}])[0]
+        return XBLToken(
+            token=auth.get("Token", ""),
+            user_hash=user_info.get("uhs", ""),
+            gamer_tag=user_info.get("gtg", ""),
+            xuid=user_info.get("xid", ""),
+            issue_instant=auth.get("IssueInstant", ""),
+            not_after=auth.get("NotAfter", ""),
+        )
 
 
 async def request_xbl_token(
@@ -213,6 +294,9 @@ async def request_xbl_token(
     session: aiohttp.ClientSession | None = None,
 ) -> XBLToken:
     """Request an Xbox Live XSTS token.
+
+    Tries the primary config first, then falls back to alternative configs
+    if the device token request is rate-limited.
 
     Args:
         live_token: Valid Microsoft Live OAuth2 token.
@@ -232,48 +316,28 @@ async def request_xbl_token(
     if own_session:
         session = aiohttp.ClientSession()
     try:
-        device = await request_device_token(config, session)
+        # Try primary config.
+        try:
+            device = await _request_device_token_single(config, session)
+            return await _sisu_authorize(live_token, relying_party, device, config.client_id, session)
+        except RuntimeError:
+            pass
 
-        import json
-        body = {
-            "AccessToken": "t=" + live_token.access_token,
-            "AppId": config.client_id,
-            "DeviceToken": device.token,
-            "Sandbox": "RETAIL",
-            "UseModernGamertag": True,
-            "SiteName": "user.auth.xboxlive.com",
-            "RelyingParty": relying_party,
-            "ProofKey": _proof_key_json(device.proof_key),
-        }
-        body_bytes = json.dumps(body).encode()
-        path = "/authorize"
-        sig = _sign_request("POST", path, body_bytes, "", device.proof_key)
+        # Fallback: try other configs (device token + matching AppId).
+        import logging
+        _logger = logging.getLogger(__name__)
+        for fallback in _FALLBACK_CONFIGS:
+            if fallback.device_type == config.device_type:
+                continue
+            try:
+                device = await _request_device_token_single(fallback, session)
+                token = await _sisu_authorize(live_token, relying_party, device, fallback.client_id, session)
+                _logger.info("XBL auth succeeded with fallback config: %s", fallback.device_type)
+                return token
+            except RuntimeError:
+                continue
 
-        async with session.post(
-            SISU_AUTHORIZE_URL,
-            data=body_bytes,
-            headers={
-                "Content-Type": "application/json",
-                "Signature": sig,
-                "x-xbl-contract-version": "1",
-            },
-        ) as resp:
-            update_server_time(dict(resp.headers))
-            if resp.status != 200:
-                error_code = resp.headers.get("x-err", "")
-                msg = _parse_xbox_error(error_code) if error_code else str(resp.status)
-                raise RuntimeError(f"XBL auth failed: {msg}")
-            data = await resp.json(content_type=None)
-            auth = data.get("AuthorizationToken", {})
-            user_info = auth.get("DisplayClaims", {}).get("xui", [{}])[0]
-            return XBLToken(
-                token=auth.get("Token", ""),
-                user_hash=user_info.get("uhs", ""),
-                gamer_tag=user_info.get("gtg", ""),
-                xuid=user_info.get("xid", ""),
-                issue_instant=auth.get("IssueInstant", ""),
-                not_after=auth.get("NotAfter", ""),
-            )
+        raise RuntimeError("XBL auth failed: all device configs exhausted")
     finally:
         if own_session:
             await session.close()

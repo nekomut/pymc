@@ -12,6 +12,9 @@ import random
 
 from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
 
+from pymc.nethernet import aiortc_patch
+aiortc_patch.apply()
+
 from pymc.nethernet.conn import NetherNetConn
 from pymc.nethernet.signaling import (
     SIGNAL_ANSWER,
@@ -93,6 +96,7 @@ class NetherNetNetwork(Network):
             # Build ICE server configuration.
             ice_servers = []
             for server in creds.ice_servers:
+                logger.debug("ICE server: urls=%s", server.urls)
                 ice_servers.append(RTCIceServer(
                     urls=server.urls,
                     username=server.username,
@@ -124,6 +128,7 @@ class NetherNetNetwork(Network):
 
             # Send the offer via signaling.
             local_desc = pc.localDescription
+            logger.info("SDP offer:\n%s", local_desc.sdp)
             await signaling.signal(Signal(
                 type=SIGNAL_OFFER,
                 connection_id=connection_id,
@@ -144,10 +149,11 @@ class NetherNetNetwork(Network):
 
                 if sig.type == SIGNAL_ANSWER:
                     # Set the remote description (SDP answer).
+                    logger.info("SDP answer:\n%s", sig.data)
                     answer = RTCSessionDescription(sdp=sig.data, type="answer")
                     await pc.setRemoteDescription(answer)
                     answer_received = True
-                    logger.debug("received SDP answer from %s", sig.network_id)
+                    logger.info("received SDP answer from %s", sig.network_id)
 
                 elif sig.type == SIGNAL_CANDIDATE:
                     # Add remote ICE candidate.

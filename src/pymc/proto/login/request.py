@@ -15,12 +15,39 @@ from dataclasses import dataclass
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+from cryptography.hazmat.primitives.hashes import SHA384
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
     PublicFormat,
 )
 
 from pymc.proto.login.data import ClientData, IdentityData
+
+
+def _encode_jwt(claims: dict, private_key: ec.EllipticCurvePrivateKey, headers: dict) -> str:
+    """Encode a JWT without the 'typ' header field.
+
+    PyJWT always adds ``"typ": "JWT"`` to the header.  JJWT (used by
+    ViaBedrock) does not include it.  This function produces JWTs whose
+    headers match ViaBedrock's output: ``{"alg":"ES384","x5u":"..."}``.
+    """
+    header = {"alg": "ES384", **headers}
+    h_b64 = base64.urlsafe_b64encode(
+        json.dumps(header, separators=(",", ":")).encode()
+    ).rstrip(b"=")
+    p_b64 = base64.urlsafe_b64encode(
+        json.dumps(claims, separators=(",", ":")).encode()
+    ).rstrip(b"=")
+    signing_input = h_b64 + b"." + p_b64
+
+    der_sig = private_key.sign(signing_input, ec.ECDSA(SHA384()))
+    r, s = decode_dss_signature(der_sig)
+    # ES384: r and s are each 48 bytes (384 bits).
+    sig_bytes = r.to_bytes(48, "big") + s.to_bytes(48, "big")
+    s_b64 = base64.urlsafe_b64encode(sig_bytes).rstrip(b"=")
+
+    return (h_b64 + b"." + p_b64 + b"." + s_b64).decode()
 
 
 def marshal_public_key(key: ec.EllipticCurvePublicKey) -> str:
@@ -75,10 +102,7 @@ def encode_offline(
         },
         "identityPublicKey": public_key_b64,
     }
-    chain_jwt = jwt.encode(
-        identity_claims, private_key,
-        algorithm="ES384", headers=signer_headers,
-    )
+    chain_jwt = _encode_jwt(identity_claims, private_key, signer_headers)
 
     if legacy:
         # Legacy format: just {"chain":["<jwt>"]} (pre-1.26.10)
@@ -99,10 +123,7 @@ def encode_offline(
         if identity_data.playfab_title_id:
             token_claims["tid"] = identity_data.playfab_title_id
 
-        token_jwt = jwt.encode(
-            token_claims, private_key,
-            algorithm="ES384", headers=signer_headers,
-        )
+        token_jwt = _encode_jwt(token_claims, private_key, signer_headers)
         cert_json = json.dumps({"chain": [chain_jwt]}, separators=(",", ":"))
         request_obj = {
             "Certificate": cert_json,  # String, not object
@@ -112,10 +133,7 @@ def encode_offline(
 
     # Client data JWT (RawToken)
     client_dict = _build_client_dict(client_data)
-    raw_token = jwt.encode(
-        client_dict, private_key,
-        algorithm="ES384", headers=signer_headers,
-    )
+    raw_token = _encode_jwt(client_dict, private_key, signer_headers)
 
     # Assemble: [request_json_len:le32][request_json][raw_token_len:le32][raw_token]
     request_json = json.dumps(request_obj, separators=(",", ":")).encode()
@@ -134,7 +152,7 @@ def _build_client_dict(client_data: ClientData) -> dict:
 
     JSON field names must match gophertunnel's Go struct tags exactly.
     """
-    return {
+    d = {
         "AnimatedImageData": [],
         "ArmSize": client_data.arm_size,
         "CapeData": client_data.cape_data,
@@ -150,18 +168,20 @@ def _build_client_dict(client_data: ClientData) -> dict:
         "DeviceModel": client_data.device_model,
         "DeviceOS": client_data.device_os,
         "GameVersion": client_data.game_version,
+        "GraphicsMode": client_data.graphics_mode,
         "GuiScale": client_data.gui_scale,
         "IsEditorMode": client_data.is_editor_mode,
         "LanguageCode": client_data.language_code,
         "MaxViewDistance": client_data.max_view_distance,
         "MemoryTier": client_data.memory_tier,
         "OverrideSkin": False,
+        "PartyId": "",
         "PersonaPieces": [],
         "PersonaSkin": client_data.persona_skin,
         "PieceTintColors": [],
         "PlatformOfflineId": client_data.platform_offline_id,
         "PlatformOnlineId": client_data.platform_online_id,
-        "PlatformUserId": client_data.platform_user_id,
+        "PlatformType": client_data.platform_type,
         "PlayFabId": client_data.playfab_id,
         "PremiumSkin": client_data.premium_skin,
         "SelfSignedId": client_data.self_signed_id or str(uuid.uuid4()),
@@ -179,6 +199,10 @@ def _build_client_dict(client_data: ClientData) -> dict:
         "TrustedSkin": client_data.trusted_skin,
         "UIProfile": client_data.ui_profile,
     }
+    # Match Go's omitempty behavior: omit empty optional fields.
+    if client_data.platform_user_id:
+        d["PlatformUserId"] = client_data.platform_user_id
+    return d
 
 
 def encode_authenticated(
@@ -191,7 +215,7 @@ def encode_authenticated(
 
     Mirrors gophertunnel's login.Encode. Prepends a self-signed JWT to the
     chain (linking our key to the first chain JWT's key), then wraps the
-    chain in the ``{"Certificate": "...", "AuthenticationType": 2, "Token": "..."}``
+    chain in the ``{"AuthenticationType": 0, "Certificate": "...", "Token": "..."}``
     request format expected by the server.
 
     Args:
@@ -203,53 +227,26 @@ def encode_authenticated(
     Returns:
         connection_request bytes for the Login packet.
     """
-    import jwt as pyjwt
-
     public_key_b64 = marshal_public_key(private_key.public_key())
     now = int(time.time())
     signer_headers = {"x5u": public_key_b64}
 
-    # Parse the existing chain from the auth service.
-    chain_data = json.loads(login_chain)
-    chain_tokens: list[str] = chain_data.get("chain", [])
-
-    # Extract x5u (public key) from the first chain JWT header.
-    # This links our self-signed JWT to the auth service's chain.
-    first_x5u = ""
-    if chain_tokens:
-        first_header = pyjwt.get_unverified_header(chain_tokens[0])
-        first_x5u = first_header.get("x5u", "")
-
-    # Create a self-signed JWT that bridges our key to the chain.
-    bridge_claims = {
-        "nbf": now - 21600,
-        "exp": now + 21600,
-        "identityPublicKey": first_x5u,
-        "certificateAuthority": True,
-    }
-    bridge_jwt = jwt.encode(
-        bridge_claims, private_key,
-        algorithm="ES384", headers=signer_headers,
-    )
-
-    # Prepend our JWT to the chain.
-    full_chain = [bridge_jwt] + chain_tokens
-    cert_json = json.dumps({"chain": full_chain}, separators=(",", ":"))
+    # Use a minimal certificate placeholder (matching ViaBedrock).
+    # The server authenticates via the Token (multiplayer JWT) instead.
+    cert_json = '{"chain":[".."]}\n'
 
     # Build the request object (non-legacy format).
-    # AuthenticationType=0 for authenticated login (2 is for offline/OIDC).
+    # AuthenticationType=0 for authenticated login with Xbox Live chain.
+    # Field order matches ViaBedrock's Gson output.
     request_obj = {
-        "Certificate": cert_json,
         "AuthenticationType": 0,
+        "Certificate": cert_json,
         "Token": multiplayer_token,
     }
 
     # Build client data JWT (full client data, same as encode_offline).
     client_dict = _build_client_dict(client_data)
-    raw_token = jwt.encode(
-        client_dict, private_key,
-        algorithm="ES384", headers=signer_headers,
-    )
+    raw_token = _encode_jwt(client_dict, private_key, signer_headers)
 
     # Assemble: [le32 len(request_json)][request_json][le32 len(raw_token)][raw_token]
     request_json = json.dumps(request_obj, separators=(",", ":")).encode()

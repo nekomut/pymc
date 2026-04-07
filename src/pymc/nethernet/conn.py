@@ -70,10 +70,45 @@ class NetherNetConn(NetworkConnection):
     def _on_dc_close(self) -> None:
         """Handle reliable DataChannel close."""
         logger.warning("reliable DC closed (readyState=%s)", self._reliable_dc.readyState)
-        # Check PC state
+        # Check PC state and unreliable DC state.
         try:
             logger.warning("  PC connectionState=%s iceConnectionState=%s",
                           self._pc.connectionState, self._pc.iceConnectionState)
+        except Exception:
+            pass
+        try:
+            if self._unreliable_dc:
+                logger.warning("  unreliable DC readyState=%s", self._unreliable_dc.readyState)
+        except Exception:
+            pass
+        # Log queued but unprocessed packets.
+        logger.warning("  unprocessed packets in queue: %d", self._packets.qsize())
+
+        # Schedule delayed check to see if unreliable DC also closes.
+        try:
+            loop = asyncio.get_event_loop()
+            loop.call_later(0.5, self._delayed_dc_state_check)
+        except Exception:
+            pass
+
+        # Signal EOF to readers by pushing a sentinel.
+        self._closed = True
+        try:
+            self._packets.put_nowait(b"")
+        except asyncio.QueueFull:
+            pass
+
+    def _delayed_dc_state_check(self) -> None:
+        """Log DC states 500ms after reliable DC close."""
+        try:
+            logger.warning("  [500ms later] PC connectionState=%s iceConnectionState=%s",
+                          self._pc.connectionState, self._pc.iceConnectionState)
+        except Exception:
+            pass
+        try:
+            if self._unreliable_dc:
+                logger.warning("  [500ms later] unreliable DC readyState=%s",
+                              self._unreliable_dc.readyState)
         except Exception:
             pass
 
@@ -114,7 +149,10 @@ class NetherNetConn(NetworkConnection):
 
     async def read_packet(self) -> bytes:
         """Read a fully reassembled packet from the reliable channel."""
-        return await self._packets.get()
+        data = await self._packets.get()
+        if not data and self._closed:
+            raise ConnectionError("DataChannel closed by remote")
+        return data
 
     async def write_packet(self, data: bytes) -> None:
         """Write a packet to the reliable channel, segmenting if needed."""

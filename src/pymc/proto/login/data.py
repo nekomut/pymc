@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import random
 import uuid
 from dataclasses import dataclass, field
@@ -55,7 +56,7 @@ class ClientData:
     skin_resource_patch: str = ""
     skin_geometry: str = ""
     skin_geometry_version: str = ""
-    skin_colour: str = ""
+    skin_colour: str = "#0"  # Matches ViaBedrock default
     arm_size: str = "wide"
     cape_data: str = ""
     cape_id: str = ""
@@ -74,6 +75,8 @@ class ClientData:
     compatible_with_client_side_chunk_gen: bool = False
     max_view_distance: int = 0
     memory_tier: int = 0
+    platform_type: int = 0
+    graphics_mode: int = 1  # Fancy (matches ViaBedrock)
 
 
 @dataclass
@@ -194,22 +197,32 @@ def default_client_data() -> ClientData:
 
     Provides a minimal but valid 32x64 black skin with standard humanoid geometry.
     """
-    # 32x64 opaque black skin (RGBA 0,0,0,255 per pixel).
-    skin_pixels = bytes([0, 0, 0, 255]) * (32 * 64)
+    # 64x64 opaque black skin (RGBA 0,0,0,255 per pixel).
+    skin_w, skin_h = 64, 64
+    skin_pixels = bytes([0, 0, 0, 255]) * (skin_w * skin_h)
     skin_data_b64 = base64.b64encode(skin_pixels).decode()
+
+    # Generate a random PlayFabID (16-character hex, matching gophertunnel).
+    playfab_id = os.urandom(8).hex()
 
     return ClientData(
         game_version="1.26.12",
         language_code="en_US",
-        device_os=7,  # Windows 10
-        device_model="pymc",
-        device_id=str(uuid.uuid4()),
+        device_os=8,  # Win32 (matches ViaBedrock)
+        device_model="",  # Set by caller if needed
+        device_id=uuid.uuid4().hex,
         client_random_id=random.randint(-(2**63), 2**63 - 1),
         self_signed_id=str(uuid.uuid4()),
+        default_input_mode=2,  # Mouse (Win32)
+        current_input_mode=2,  # Mouse
+        gui_scale=-1,
+        max_view_distance=96,
+        memory_tier=4,  # SuperHigh
+        playfab_id=playfab_id,
         skin_id=str(uuid.uuid4()),
         skin_data=skin_data_b64,
-        skin_image_height=32,
-        skin_image_width=64,
+        skin_image_height=skin_h,
+        skin_image_width=skin_w,
         skin_resource_patch=base64.b64encode(_SKIN_RESOURCE_PATCH.encode()).decode(),
         skin_geometry=base64.b64encode(_SKIN_GEOMETRY.encode()).decode(),
         skin_geometry_version=base64.b64encode(b"0.0.0").decode(),
