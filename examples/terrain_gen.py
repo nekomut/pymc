@@ -1,12 +1,16 @@
-"""地理院タイルから Minecraft 地形データを生成する.
+"""地理院タイルから Minecraft 地形データを生成する (Step 1/2).
+
+terrain_gen.py → terrain_build.py の2ステップで使用する。
+本スクリプトで terrain.json を生成し、terrain_build.py で BDS/Realms に配置する。
 
 DEM5A 標高タイル（txt）+ ベクトルタイル（pbf）から terrain.json を出力。
 GML ファイル不要。緯度経度を指定するだけで任意の場所の地形を生成できる。
-出力は terrain_build.py と互換。
 
 Usage:
     python examples/terrain_gen.py --lat 36.104665 --lon 140.087099
     python examples/terrain_gen.py --lat 35.6895 --lon 139.6917 --width 500 --height 500
+    # → terrain.json が生成される
+    # → python examples/terrain_build.py --reset で配置
 """
 
 from __future__ import annotations

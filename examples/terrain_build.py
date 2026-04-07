@@ -1,6 +1,9 @@
-"""DEM地形配置ボット（並列対応）.
+"""terrain_gen.py で生成した地形データを Minecraft に配置する (Step 2/2).
 
-BDS に直接接続し、基盤地図情報 DEM5A から生成した地形を配置する。
+terrain_gen.py → terrain_build.py の2ステップで使用する。
+terrain_gen.py が出力した terrain.json を読み込み、BDS/Realms にブロックを配置する。
+BDS (ローカルサーバー) と Realms (--realms オプション) の両方に対応。
+Realms 接続には Xbox Live 認証が必要 (初回実行時にブラウザで Microsoft アカウントにログインする)。
 複数ボットで並列配置し、途中終了しても次回レジュームできる。
 
 初回のみ BDS コンソールで各ボットに /op を実行すること。
@@ -13,7 +16,12 @@ BDS に直接接続し、基盤地図情報 DEM5A から生成した地形を配
   - MC座標: X+=東, Z+=南, Y+=上
 
 Usage:
-    python examples/terrain_build.py --address 127.0.0.1:19132 --bots 4
+    # BDS (ローカルサーバー) に接続
+    python examples/terrain_gen.py --lat 36.104665 --lon 140.087099  # Step 1
+    python examples/terrain_build.py --address 127.0.0.1:19132 --bots 4  # Step 2
+
+    # Realms に接続 (Xbox Live 認証)
+    python examples/terrain_build.py --realms --bots 4
 """
 
 from __future__ import annotations
