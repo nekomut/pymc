@@ -1,7 +1,7 @@
 """NetherNet connection over WebRTC DataChannel.
 
 Implements the NetworkConnection interface using aiortc's DataChannel
-with packet segmentation matching go-nethernet's wire format.
+with packet segmentation matching the NetherNet wire format.
 """
 
 from __future__ import annotations

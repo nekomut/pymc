@@ -1,6 +1,6 @@
 """Connection for Minecraft Bedrock Edition protocol.
 
-Mirrors gophertunnel/minecraft/conn.go. Handles packet read/write with
+Handles packet read/write with
 buffering, compression, and encryption over an abstract transport.
 """
 

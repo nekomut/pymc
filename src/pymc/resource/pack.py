@@ -1,6 +1,6 @@
 """Resource pack reading and management.
 
-Mirrors gophertunnel/minecraft/resource/pack.go.
+Reading and management of Minecraft resource/behavior packs.
 """
 
 from __future__ import annotations

@@ -202,7 +202,7 @@ async def request_service_token(
         version: Game build version string.
         session: Optional aiohttp session to reuse.
         playfab_session_ticket: PlayFab session ticket. If provided, uses
-            PlayFab authentication (matching gophertunnel's flow).
+            PlayFab authentication.
 
     Returns:
         A :class:`ServiceToken` containing the authorization header JWT.

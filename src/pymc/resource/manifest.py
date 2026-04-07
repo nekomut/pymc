@@ -1,6 +1,6 @@
 """Resource pack manifest parsing.
 
-Mirrors gophertunnel/minecraft/resource/manifest.go.
+Parses resource pack manifest.json files.
 """
 
 from __future__ import annotations

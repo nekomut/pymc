@@ -1,6 +1,5 @@
 """UT3 query protocol for Minecraft Bedrock Edition servers.
 
-Mirrors gophertunnel/minecraft/query/query.go.
 Uses UDP to query server information via the UT3 query protocol.
 """
 

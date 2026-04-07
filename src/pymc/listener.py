@@ -1,6 +1,6 @@
 """Server listener for Minecraft Bedrock Edition connections.
 
-Mirrors gophertunnel/minecraft/listener.go.
+Accepts incoming Minecraft Bedrock Edition connections.
 """
 
 from __future__ import annotations

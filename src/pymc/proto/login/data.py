@@ -1,6 +1,6 @@
 """Login identity and client data structures.
 
-Mirrors gophertunnel/minecraft/protocol/login/data.go.
+Player identity and client device data for the login handshake.
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ _SKIN_RESOURCE_PATCH = json.dumps(
 )
 
 # Default skin geometry (cape + humanoid.custom + humanoid.customSlim).
-# Matches gophertunnel's embedded skin_geometry.json.
+# Default skin geometry (cape + humanoid.custom + humanoid.customSlim).
 _SKIN_GEOMETRY = json.dumps(
     {
         "format_version": "1.12.0",
@@ -193,7 +193,7 @@ _SKIN_GEOMETRY = json.dumps(
 
 
 def default_client_data() -> ClientData:
-    """Create ClientData with valid defaults matching gophertunnel's defaultClientData().
+    """Create ClientData with valid defaults.
 
     Provides a minimal but valid 32x64 black skin with standard humanoid geometry.
     """
@@ -202,7 +202,7 @@ def default_client_data() -> ClientData:
     skin_pixels = bytes([0, 0, 0, 255]) * (skin_w * skin_h)
     skin_data_b64 = base64.b64encode(skin_pixels).decode()
 
-    # Generate a random PlayFabID (16-character hex, matching gophertunnel).
+    # Generate a random PlayFabID (16-character hex).
     playfab_id = os.urandom(8).hex()
 
     return ClientData(

@@ -153,7 +153,7 @@ def encode_batch(
             # Below threshold: no compression, but mark as uncompressed.
             result.append(COMPRESSION_NONE)
         elif compression == COMPRESSION_FLATE:
-            # Raw deflate (no zlib header) — matches gophertunnel's compress/flate
+            # Raw deflate (no zlib header)
             compressor = zlib.compressobj(zlib.Z_DEFAULT_COMPRESSION, zlib.DEFLATED, -15)
             data = compressor.compress(data) + compressor.flush()
             result.append(COMPRESSION_FLATE)

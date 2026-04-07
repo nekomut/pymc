@@ -1,7 +1,6 @@
 """Network abstraction layer for Minecraft Bedrock Edition.
 
-Mirrors gophertunnel/minecraft/network.go and raknet.go.
-Provides a pluggable transport layer (RakNet or other).
+Provides a pluggable transport layer (RakNet, NetherNet, etc.).
 """
 
 from __future__ import annotations

@@ -1,8 +1,6 @@
 """Packet encryption/decryption using AES-256-CTR with SHA-256 checksums.
 
-Mirrors gophertunnel/minecraft/protocol/packet/encryption.go.
-
-Flow (matching Go):
+Flow:
   Encoder: encrypt(full_batch) → encrypts bytes[1:], appends checksum before encrypting
   Decoder: receives data[1:] (header stripped), decrypt_and_verify() → decrypts, verifies, strips checksum
 """

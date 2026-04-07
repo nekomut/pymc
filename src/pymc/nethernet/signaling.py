@@ -40,7 +40,7 @@ MSG_TYPE_SIGNAL = 1
 MSG_TYPE_CREDENTIALS = 2
 MSG_TYPE_ACK = 3  # Message delivery acknowledgement
 
-# Signal types matching go-nethernet signal.go constants.
+# Signal types for NetherNet WebRTC signaling.
 SIGNAL_OFFER = "CONNECTREQUEST"
 SIGNAL_ANSWER = "CONNECTRESPONSE"
 SIGNAL_CANDIDATE = "CANDIDATEADD"

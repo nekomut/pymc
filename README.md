@@ -2,7 +2,6 @@
 
 Minecraft Bedrock Edition プロトコルライブラリ for Python.
 
-[gophertunnel](https://github.com/sandertv/gophertunnel) (Go) を Python に移植したもので、
 Bedrock Edition のクライアント・サーバー・プロキシを asyncio ベースで構築できます。
 
 ## 特徴
@@ -228,6 +227,10 @@ pytest tests/ -v
 | JWT                 | `PyJWT`                    |
 | 圧縮 (flate)        | `zlib` (標準)              |
 | 圧縮 (snappy)       | `python-snappy` (optional) |
+
+## 謝辞
+
+本プロジェクトは [gophertunnel](https://github.com/sandertv/gophertunnel) (Go) にインスパイアされています。
 
 ## ライセンス
 

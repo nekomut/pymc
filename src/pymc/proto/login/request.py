@@ -1,6 +1,5 @@
 """Login request encoding and parsing.
 
-Mirrors gophertunnel/minecraft/protocol/login/request.go.
 Handles JWT chain creation for both authenticated and offline modes.
 """
 
@@ -75,8 +74,7 @@ def encode_offline(
 ) -> bytes:
     """Create a self-signed login request for offline mode.
 
-    Mirrors gophertunnel's EncodeOffline. When legacy=False (default,
-    for protocol >= 1.26.10), produces the new OIDC multiplayer token
+    When legacy=False (default, for protocol >= 1.26.10), produces the new OIDC multiplayer token
     format. When legacy=True, produces the old extraData chain format.
 
     Returns the connection_request bytes for the Login packet.
@@ -150,7 +148,7 @@ def encode_offline(
 def _build_client_dict(client_data: ClientData) -> dict:
     """Build client data claims dictionary for JWT.
 
-    JSON field names must match gophertunnel's Go struct tags exactly.
+    JSON field names must match the Bedrock protocol's expected casing.
     """
     d = {
         "AnimatedImageData": [],
@@ -213,7 +211,7 @@ def encode_authenticated(
 ) -> bytes:
     """Create an authenticated login request using an Xbox Live JWT chain.
 
-    Mirrors gophertunnel's login.Encode. Prepends a self-signed JWT to the
+    Prepends a self-signed JWT to the
     chain (linking our key to the first chain JWT's key), then wraps the
     chain in the ``{"AuthenticationType": 0, "Certificate": "...", "Token": "..."}``
     request format expected by the server.

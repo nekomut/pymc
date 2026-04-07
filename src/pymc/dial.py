@@ -1,6 +1,6 @@
 """Client dialer for connecting to Minecraft Bedrock Edition servers.
 
-Mirrors gophertunnel/minecraft/dial.go.
+Client connection flow for Minecraft Bedrock Edition.
 """
 
 from __future__ import annotations

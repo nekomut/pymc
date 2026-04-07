@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Python packet dataclasses from Go gophertunnel packet source files.
+"""Generate Python packet dataclasses from Go packet source files.
 
 Usage:
     python tools/gen_packets.py [--go-dir PATH] [--out-dir PATH] [--dry-run]

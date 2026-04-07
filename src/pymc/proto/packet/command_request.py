@@ -9,7 +9,7 @@ from pymc.proto.io import PacketReader, PacketWriter
 from pymc.proto.packet import ID_COMMAND_REQUEST
 from pymc.proto.pool import Packet, register_server_packet
 
-# CommandOrigin constants (mirrors gophertunnel protocol.CommandOrigin*)
+# CommandOrigin constants
 ORIGIN_PLAYER = "player"
 ORIGIN_COMMAND_BLOCK = "commandblock"
 ORIGIN_DEV_CONSOLE = "devconsole"

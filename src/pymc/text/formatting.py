@@ -1,6 +1,5 @@
 """Minecraft Bedrock Edition text formatting and colour codes.
 
-Mirrors gophertunnel/minecraft/text/colour.go and map.go.
 Provides Minecraft § colour codes, ANSI conversion, and HTML-style formatting.
 """
 

@@ -1,7 +1,6 @@
 """Packet: StartGame.
 
-Manually ported from gophertunnel/minecraft/protocol/packet/start_game.go.
-This is a critical handshake packet with 79+ fields.
+A critical handshake packet with 79+ fields.
 """
 
 from __future__ import annotations
