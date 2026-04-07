@@ -27,7 +27,7 @@ from mcbe.raknet import RakNetNetwork
 logger = logging.getLogger(__name__)
 
 
-async def resolve_realms(invite_code: str | None = None):
+async def resolve_realms(invite_code: str | None = None, backend: str | None = None):
     """Realms に認証して接続情報を返す."""
     from mcbe.auth.live import get_live_token
     from mcbe.auth.xbox import request_xbl_token
@@ -77,6 +77,7 @@ async def resolve_realms(invite_code: str | None = None):
             mc_token=service_token.authorization_header,
             signaling_url=discovery.signaling_info.service_uri,
             use_jsonrpc=is_jsonrpc,
+            backend=backend,
         )
 
     xbl_mp = await request_xbl_token(live_token, "https://multiplayer.minecraft.net/")
@@ -89,6 +90,7 @@ async def resolve_realms(invite_code: str | None = None):
 async def main(
     address: str, x: int, y: int, z: int, block: str,
     realms: bool = False, invite_code: str | None = None,
+    backend: str | None = None,
 ) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
 
@@ -99,7 +101,7 @@ async def main(
 
     if realms:
         logger.info("Realms モード: 認証中...")
-        address, login_chain, auth_key, multiplayer_token, network = await resolve_realms(invite_code)
+        address, login_chain, auth_key, multiplayer_token, network = await resolve_realms(invite_code, backend=backend)
     if network is None:
         network = RakNetNetwork()
 
@@ -139,5 +141,6 @@ if __name__ == "__main__":
     parser.add_argument("--block", default="redstone_block", help="ブロック ID (default: redstone_block)")
     parser.add_argument("--realms", action="store_true", help="Realms に接続")
     parser.add_argument("--invite-code", help="Realm 招待コード")
+    parser.add_argument("--backend", choices=["aiortc", "libdatachannel"], default=None, help="WebRTC バックエンド (default: libdatachannel 優先)")
     args = parser.parse_args()
-    asyncio.run(main(args.bds_address, args.x, args.y, args.z, args.block, realms=args.realms, invite_code=args.invite_code))
+    asyncio.run(main(args.bds_address, args.x, args.y, args.z, args.block, realms=args.realms, invite_code=args.invite_code, backend=args.backend))

@@ -382,7 +382,7 @@ async def bot_worker(
         await conn.close()
 
 
-async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, object, object | None]:
+async def resolve_realms(invite_code: str | None = None, backend: str | None = None) -> tuple[str, str, object, object | None]:
     """Realms に認証して接続先アドレス、login_chain、auth_key、Network を返す.
 
     Returns:
@@ -464,6 +464,7 @@ async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, obje
             mc_token=service_token.authorization_header,
             signaling_url=signaling_info.service_uri,
             use_jsonrpc=is_jsonrpc,
+            backend=backend,
         )
 
     # Minecraft 認証用トークン（login chain 取得）
@@ -476,7 +477,7 @@ async def resolve_realms(invite_code: str | None = None) -> tuple[str, str, obje
     return address, login_chain, key, multiplayer_token, network
 
 
-async def main(address: str, num_bots: int, *, reset: bool = False, no_road: bool = False, no_building: bool = False, only_road: bool = False, only_building: bool = False, only_centerline: bool = False, realms: bool = False, invite_code: str | None = None) -> None:
+async def main(address: str, num_bots: int, *, reset: bool = False, no_road: bool = False, no_building: bool = False, only_road: bool = False, only_building: bool = False, only_centerline: bool = False, realms: bool = False, invite_code: str | None = None, backend: str | None = None) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -493,7 +494,7 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
     if realms:
         num_bots = 1
         logger.info("Realms モード: 認証中...")
-        address, login_chain, auth_key, multiplayer_token, realms_network = await resolve_realms(invite_code)
+        address, login_chain, auth_key, multiplayer_token, realms_network = await resolve_realms(invite_code, backend=backend)
         realms_gamertag = extract_gamertag(login_chain)
         if realms_gamertag:
             logger.info("ゲーマータグ: %s", realms_gamertag)
@@ -668,5 +669,6 @@ if __name__ == "__main__":
     parser.add_argument("--only-centerline", action="store_true", help="レッドストーン配置のみ実行する")
     parser.add_argument("--realms", action="store_true", help="Realms に接続する（1ボット、Xbox Live 認証）")
     parser.add_argument("--invite-code", default=None, help="Realm の招待コード（省略時は最初の Realm）")
+    parser.add_argument("--backend", choices=["aiortc", "libdatachannel"], default=None, help="WebRTC バックエンド (default: libdatachannel 優先)")
     args = parser.parse_args()
-    asyncio.run(main(args.bds_address, args.bots, reset=args.reset, no_road=args.no_road, no_building=args.no_building, only_road=args.only_road, only_building=args.only_building, only_centerline=args.only_centerline, realms=args.realms, invite_code=args.invite_code))
+    asyncio.run(main(args.bds_address, args.bots, reset=args.reset, no_road=args.no_road, no_building=args.no_building, only_road=args.only_road, only_building=args.only_building, only_centerline=args.only_centerline, realms=args.realms, invite_code=args.invite_code, backend=args.backend))
