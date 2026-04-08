@@ -115,6 +115,7 @@ class Connection:
         """Enable packet compression."""
         self._compression = algorithm
         self._compression_threshold = threshold
+        logger.debug("compression enabled: algorithm=%d threshold=%d", algorithm, threshold)
 
     # ── Encryption ───────────────────────────────────────────────
 
@@ -141,7 +142,8 @@ class Connection:
                 return
             to_send = self._send_buffer
             self._send_buffer = []
-        logger.debug("flush: %d packet(s)", len(to_send))
+        logger.debug("flush: %d packet(s), compression=%s, batch_header=%s",
+                     len(to_send), self._compression, self._use_batch_header)
 
         batch = bytearray(
             encode_batch(

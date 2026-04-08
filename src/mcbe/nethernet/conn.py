@@ -69,20 +69,20 @@ class NetherNetConn(NetworkConnection):
 
     def _on_dc_close(self) -> None:
         """Handle reliable DataChannel close."""
-        logger.warning("reliable DC closed (readyState=%s)", self._reliable_dc.readyState)
+        logger.debug("reliable DC closed (readyState=%s)", self._reliable_dc.readyState)
         # Check PC state and unreliable DC state.
         try:
-            logger.warning("  PC connectionState=%s iceConnectionState=%s",
-                          self._pc.connectionState, self._pc.iceConnectionState)
+            logger.debug("  PC connectionState=%s iceConnectionState=%s",
+                         self._pc.connectionState, self._pc.iceConnectionState)
         except Exception:
             pass
         try:
             if self._unreliable_dc:
-                logger.warning("  unreliable DC readyState=%s", self._unreliable_dc.readyState)
+                logger.debug("  unreliable DC readyState=%s", self._unreliable_dc.readyState)
         except Exception:
             pass
         # Log queued but unprocessed packets.
-        logger.warning("  unprocessed packets in queue: %d", self._packets.qsize())
+        logger.debug("  unprocessed packets in queue: %d", self._packets.qsize())
 
         # Schedule delayed check to see if unreliable DC also closes.
         try:

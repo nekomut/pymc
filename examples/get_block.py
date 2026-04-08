@@ -1,14 +1,14 @@
-"""指定座標にブロックを1つ配置するサンプル.
+"""指定座標のブロック情報を取得するサンプル.
 
 Usage:
-    # BDS に接続して (0, 30, 0) にレッドストーンブロックを配置
-    python examples/place_block.py
+    # BDS に接続して (0, 30, 0) のブロックを取得
+    python examples/get_block.py
 
-    # 座標とブロックを指定
-    python examples/place_block.py --x 10 --y 64 --z 20 --block diamond_block
+    # 座標を指定
+    python examples/get_block.py --x 10 --y 64 --z 20
 
     # Realms に接続
-    python examples/place_block.py --realms --block gold_block
+    python examples/get_block.py --realms
 """
 
 from __future__ import annotations
@@ -16,12 +16,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import uuid
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from mcbe.dial import Dialer
 from mcbe.proto.login.data import IdentityData
-from mcbe.proto.packet.command_request import CommandOrigin, CommandRequest, ORIGIN_PLAYER
+from mcbe.proto.packet.command_output import CommandOutput
+from mcbe.proto.packet.command_request import CommandOrigin, CommandRequest, ORIGIN_AUTOMATION_PLAYER
+from mcbe.proto.packet.packet_violation_warning import PacketViolationWarning
 from mcbe.raknet import RakNetNetwork
 
 logger = logging.getLogger(__name__)
@@ -124,7 +127,7 @@ async def resolve_realms(invite_code: str | None = None, backend: str | None = N
 
 
 async def main(
-    address: str, x: int, y: int, z: int, block: str,
+    address: str, x: int, y: int, z: int,
     realms: bool = False, invite_code: str | None = None,
     backend: str | None = None,
     log_level: str = "WARNING",
@@ -153,32 +156,64 @@ async def main(
     async with await dialer.dial(address) as conn:
         logger.info("接続完了")
 
-        cmd = f"/setblock {x} {y} {z} {block}"
+        cmd = f"/testforblock {x} {y} {z} air"
+        request_id = str(uuid.uuid4())
         await conn.write_packet(CommandRequest(
             command_line=cmd,
-            command_origin=CommandOrigin(origin=ORIGIN_PLAYER),
+            command_origin=CommandOrigin(origin=ORIGIN_AUTOMATION_PLAYER, request_id=request_id),
             internal=False,
-
         ))
         await conn.flush()
         logger.info("実行: %s", cmd)
 
-        # サーバーからの応答を少し待つ
-        await asyncio.sleep(1.0)
+        # CommandOutput を待つ
+        found = False
+        deadline = asyncio.get_event_loop().time() + 10.0
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                pk = await asyncio.wait_for(conn.read_packet(), timeout=5.0)
+            except (asyncio.TimeoutError, TimeoutError):
+                break
+            except ConnectionError:
+                break
+            logger.debug("recv: %s", type(pk).__name__)
+            if isinstance(pk, PacketViolationWarning):
+                logger.warning("PacketViolationWarning: type=%d severity=%d packet_id=%d context=%s",
+                               pk.violation_type, pk.severity, pk.violating_packet_id, pk.violation_context)
+            if isinstance(pk, CommandOutput):
+                found = True
+                for msg in pk.output_messages:
+                    if msg.success:
+                        logger.info("(%d, %d, %d): air", x, y, z)
+                    else:
+                        # params: ['x', 'y', 'z', '%tile.<block>.name', '%tile.air.name']
+                        block_name = "unknown"
+                        for p in msg.parameters:
+                            if p.startswith("%tile.") and p != "%tile.air.name":
+                                block_name = p.removeprefix("%tile.").removesuffix(".name")
+                                break
+                        logger.info("(%d, %d, %d): %s", x, y, z, block_name)
+                    logger.debug("  message_id=%s params=%s", msg.message_id, msg.parameters)
+                if pk.data_set:
+                    logger.debug("data_set: %s", pk.data_set.strip())
+                if not pk.output_messages and not pk.data_set:
+                    logger.info("(%d, %d, %d): (応答なし)", x, y, z)
+                break
+        if not found:
+            logger.info("CommandOutput を受信できませんでした (権限不足の可能性: /op が必要)")
 
     logger.info("完了")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="指定座標にブロックを配置する")
+    parser = argparse.ArgumentParser(description="指定座標のブロック情報を取得する")
     parser.add_argument("--bds-address", default="127.0.0.1:19132", help="BDS サーバーアドレス (default: 127.0.0.1:19132)")
     parser.add_argument("--x", type=int, default=0, help="X 座標 (default: 0)")
     parser.add_argument("--y", type=int, default=30, help="Y 座標 (default: 30)")
     parser.add_argument("--z", type=int, default=0, help="Z 座標 (default: 0)")
-    parser.add_argument("--block", default="redstone_block", help="ブロック ID (default: redstone_block)")
     parser.add_argument("--realms", action="store_true", help="Realms に接続")
     parser.add_argument("--invite-code", help="Realm 招待コード")
     parser.add_argument("--backend", choices=["aiortc", "libdatachannel"], default=None, help="WebRTC バックエンド (default: libdatachannel 優先)")
     parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING"], default="WARNING", help="ログレベル (default: WARNING, __main__ は常に INFO)")
     args = parser.parse_args()
-    asyncio.run(main(args.bds_address, args.x, args.y, args.z, args.block, realms=args.realms, invite_code=args.invite_code, backend=args.backend, log_level=args.log_level))
+    asyncio.run(main(args.bds_address, args.x, args.y, args.z, realms=args.realms, invite_code=args.invite_code, backend=args.backend, log_level=args.log_level))

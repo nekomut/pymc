@@ -73,7 +73,7 @@ class LdcNetherNetConn(NetworkConnection):
 
     def _on_dc_close_cb(self) -> None:
         """Handle reliable DataChannel close (called from libdatachannel thread)."""
-        logger.warning("reliable DC closed")
+        logger.debug("reliable DC closed")
         self._closed = True
         try:
             self._loop.call_soon_threadsafe(self._packets.put_nowait, b"")

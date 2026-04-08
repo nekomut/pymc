@@ -44,6 +44,34 @@ from mcbe.proto.packet.network_stack_latency import NetworkStackLatency
 
 logger = logging.getLogger(__name__)
 
+
+class _ColorFormatter(logging.Formatter):
+    """ANSI カラー付きログフォーマッタ."""
+
+    _COLORS = {
+        logging.DEBUG: "\033[32m",    # 緑
+        logging.WARNING: "\033[33m",  # 黄
+        logging.ERROR: "\033[31m",    # 赤
+        logging.CRITICAL: "\033[31m", # 赤
+    }
+    _RESET = "\033[0m"
+
+    def format(self, record):
+        msg = super().format(record)
+        color = self._COLORS.get(record.levelno)
+        if color:
+            return f"{color}{msg}{self._RESET}"
+        return msg
+
+
+def _setup_logging(level: int) -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(_ColorFormatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+    logging.root.addHandler(handler)
+    logging.root.setLevel(level)
+    logging.getLogger(__name__).setLevel(min(level, logging.INFO))
+
+
 LOCAL_CONFIG = os.path.join(os.path.dirname(__file__), "terrain.config.json")
 TERRAIN_JSON = os.path.join(os.path.dirname(__file__), "terrain.json")
 PROGRESS_FILE = os.path.join(os.path.dirname(__file__), "heightmap.progress")
@@ -205,7 +233,7 @@ async def bot_worker(
                 command_line=cmd,
                 command_origin=CommandOrigin(origin=ORIGIN_PLAYER),
                 internal=False,
-                version="latest",
+
             )
         )
         await conn.flush()
@@ -388,12 +416,19 @@ async def resolve_realms(invite_code: str | None = None, backend: str | None = N
     Returns:
         (address, login_chain, auth_key, multiplayer_token, network)
     """
-    from mcbe.auth.live import get_live_token
+    from mcbe.auth.live import get_live_token, load_token
     from mcbe.auth.xbox import request_xbl_token
     from mcbe.auth.minecraft import request_minecraft_chain
     from mcbe.realms import RealmsClient
 
+    cached = load_token()
     live_token = await get_live_token()
+    if cached and cached.valid():
+        logger.info("キャッシュ済みトークンを使用")
+    elif cached:
+        logger.info("トークンを更新しました")
+    else:
+        logger.info("新規認証完了")
 
     # Realms API 用トークン
     xbl_realms = await request_xbl_token(
@@ -466,6 +501,8 @@ async def resolve_realms(invite_code: str | None = None, backend: str | None = N
             use_jsonrpc=is_jsonrpc,
             backend=backend,
         )
+        backend_name = "libdatachannel" if "Ldc" in type(network).__name__ else "aiortc"
+        logger.info("WebRTC バックエンド: %s", backend_name)
 
     # Minecraft 認証用トークン（login chain 取得）
     xbl_mp = await request_xbl_token(
@@ -477,11 +514,8 @@ async def resolve_realms(invite_code: str | None = None, backend: str | None = N
     return address, login_chain, key, multiplayer_token, network
 
 
-async def main(address: str, num_bots: int, *, reset: bool = False, no_road: bool = False, no_building: bool = False, only_road: bool = False, only_building: bool = False, only_centerline: bool = False, realms: bool = False, invite_code: str | None = None, backend: str | None = None) -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+async def main(address: str, num_bots: int, *, reset: bool = False, no_road: bool = False, no_building: bool = False, only_road: bool = False, only_building: bool = False, only_centerline: bool = False, realms: bool = False, invite_code: str | None = None, backend: str | None = None, log_level: str = "WARNING") -> None:
+    _setup_logging(getattr(logging, log_level))
     if num_bots < 1 or num_bots > 26:
         logger.error("ボット数は 1~26 で指定してください")
         return
@@ -670,5 +704,6 @@ if __name__ == "__main__":
     parser.add_argument("--realms", action="store_true", help="Realms に接続する（1ボット、Xbox Live 認証）")
     parser.add_argument("--invite-code", default=None, help="Realm の招待コード（省略時は最初の Realm）")
     parser.add_argument("--backend", choices=["aiortc", "libdatachannel"], default=None, help="WebRTC バックエンド (default: libdatachannel 優先)")
+    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING"], default="WARNING", help="ログレベル (default: WARNING, __main__ は常に INFO)")
     args = parser.parse_args()
-    asyncio.run(main(args.bds_address, args.bots, reset=args.reset, no_road=args.no_road, no_building=args.no_building, only_road=args.only_road, only_building=args.only_building, only_centerline=args.only_centerline, realms=args.realms, invite_code=args.invite_code, backend=args.backend))
+    asyncio.run(main(args.bds_address, args.bots, reset=args.reset, no_road=args.no_road, no_building=args.no_building, only_road=args.only_road, only_building=args.only_building, only_centerline=args.only_centerline, realms=args.realms, invite_code=args.invite_code, backend=args.backend, log_level=args.log_level))

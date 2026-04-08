@@ -244,7 +244,7 @@ async def main():
         await conn.write_packet(CommandRequest(
             command_line="/setblock 0 70 0 diamond_block",
             command_origin=CommandOrigin(origin=ORIGIN_PLAYER),
-            internal=False, version="latest",
+            internal=False,
         ))
         await conn.flush()
         await asyncio.sleep(1.0)
@@ -325,9 +325,10 @@ pytest tests/ -v
 | ファイル | 説明 |
 |---------|------|
 | `client.py` | BDS への基本的な接続 |
-| `lan_connect.py` | LAN ワールドへの接続 |
+| `conn_lan_host.py` | LAN ワールドへの接続 |
+| `get_block.py` | 指定座標のブロック情報を取得 |
 | `place_block.py` | BDS / Realms にブロックを配置 |
-| `conn_realms.py` | Realms への接続 |
+| `list_realms.py` | Realms への接続 |
 | `proxy.py` | MITM プロキシ |
 | `terrain_gen.py` | 地形データ生成 |
 | `terrain_build.py` | 生成した地形データの配置 |

@@ -12,3 +12,6 @@ venv/
 .DS_Store
 *.so
 examples/terrain.config.json
+examples/.tile_cache/
+examples/*.progress
+examples/terrain.json

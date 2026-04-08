@@ -15,8 +15,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Callable
 
+import logging
+
 import aiohttp
 
+logger = logging.getLogger(__name__)
 
 LIVE_CONNECT_URL = "https://login.live.com/oauth20_connect.srf"
 LIVE_TOKEN_URL = "https://login.live.com/oauth20_token.srf"
@@ -136,19 +139,13 @@ async def get_live_token(
     cached = load_token(cache_path)
     if cached is not None:
         if cached.valid():
-            if writer is None:
-                writer = sys.stdout
-            writer.write("キャッシュ済みトークンを使用.\n")
-            writer.flush()
+            logger.debug("キャッシュ済みトークンを使用.")
             return cached
         # refresh_token で更新を試みる
         try:
             token = await refresh_token(cached, config, session)
             save_token(token, cache_path)
-            if writer is None:
-                writer = sys.stdout
-            writer.write("トークンを更新しました.\n")
-            writer.flush()
+            logger.debug("トークンを更新しました.")
             return token
         except Exception:
             pass  # refresh 失敗 → ブラウザ認証にフォールバック
@@ -221,8 +218,7 @@ async def request_live_token(
             await asyncio.sleep(interval)
             token = await _poll_device_auth(session, config, device_auth["device_code"])
             if token is not None:
-                writer.write("Authentication successful.\n")
-                writer.flush()
+                logger.debug("Authentication successful.")
                 return token
     finally:
         if own_session:
