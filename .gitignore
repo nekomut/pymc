@@ -15,3 +15,4 @@ examples/terrain.config.json
 examples/.tile_cache/
 examples/*.progress
 examples/terrain.json
+examples/.map_cache/

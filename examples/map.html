@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCBE Map Viewer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+canvas { display: block; cursor: grab; }
+canvas:active { cursor: grabbing; }
+#hud {
+  position: fixed; top: 10px; left: 10px; color: #ccc; font-size: 13px;
+  background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 6px;
+  pointer-events: none; line-height: 1.6;
+}
+#tooltip {
+  position: fixed; display: none; color: #fff; font-size: 12px;
+  background: rgba(0,0,0,0.8); padding: 4px 8px; border-radius: 4px;
+  pointer-events: none; white-space: nowrap;
+}
+#players-list {
+  position: fixed; top: 10px; right: 10px; color: #ccc; font-size: 13px;
+  background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 6px;
+  max-height: 50vh; overflow-y: auto;
+}
+#players-list div { cursor: pointer; padding: 2px 4px; border-radius: 3px; }
+#players-list div:hover { background: rgba(255,255,255,0.1); }
+#status {
+  position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+  color: #888; font-size: 12px; background: rgba(0,0,0,0.5);
+  padding: 4px 10px; border-radius: 4px;
+}
+</style>
+</head>
+<body>
+<canvas id="map"></canvas>
+<div id="hud"></div>
+<div id="tooltip"></div>
+<div id="players-list"></div>
+<div id="status">Connecting...</div>
+
+<script>
+"use strict";
+
+const canvas = document.getElementById("map");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+const tooltip = document.getElementById("tooltip");
+const playersList = document.getElementById("players-list");
+const statusEl = document.getElementById("status");
+
+// --- State ---
+let blockColors = {};        // "minecraft:stone" -> [r,g,b] | null
+let chunkCache = new Map();  // "cx,cz" -> { palette, data(Uint8Array), imageData }
+let players = [];
+let totalChunks = 0;
+
+// Camera: world coords at center of screen
+let camX = 0, camZ = 0;
+let zoom = 4;  // pixels per block
+const MIN_ZOOM = 0.5, MAX_ZOOM = 32;
+
+// Interaction
+let dragging = false, dragStartX = 0, dragStartY = 0, dragCamX = 0, dragCamZ = 0;
+let followPlayer = null;
+
+// --- Coordinate conversion ---
+// MC: X+ = east, Z+ = south.  Screen: right = east, up = north (Z-).
+function worldToScreen(wx, wz) {
+  const sx = (wx - camX) * zoom + canvas.width / 2;
+  const sy = (-wz + camZ) * zoom + canvas.height / 2;  // flip Z
+  return [sx, sy];
+}
+
+function screenToWorld(sx, sy) {
+  const wx = (sx - canvas.width / 2) / zoom + camX;
+  const wz = -((sy - canvas.height / 2) / zoom - camZ);
+  return [wx, wz];
+}
+
+// --- Resize ---
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  requestDraw();
+}
+window.addEventListener("resize", resize);
+
+// --- Chunk rendering ---
+function getBlockColor(name) {
+  if (!name || name === "minecraft:air") return null;
+  const c = blockColors[name];
+  if (c) return c;
+  // Try without namespace
+  const short = name.replace("minecraft:", "");
+  return blockColors[short] || blockColors["minecraft:" + short] || null;
+}
+
+function buildChunkImage(chunk) {
+  // chunk.palette: string[], chunk.data: Uint8Array(256)
+  // data[i] = palette index, i = x*16 + z (x=column, z=row within chunk)
+  const img = ctx.createImageData(16, 16);
+  const d = img.data;
+  for (let x = 0; x < 16; x++) {
+    for (let z = 0; z < 16; z++) {
+      const idx = x * 16 + z;
+      const blockName = chunk.palette[chunk.data[idx]] || "minecraft:air";
+      const color = getBlockColor(blockName);
+      // Canvas pixel: px_x = x (east), px_y = 15-z (north up, Z+ is south = down)
+      const px = (x + (15 - z) * 16) * 4;
+      if (color) {
+        d[px] = color[0]; d[px+1] = color[1]; d[px+2] = color[2]; d[px+3] = 255;
+      } else {
+        d[px] = 0; d[px+1] = 0; d[px+2] = 0; d[px+3] = 0;
+      }
+    }
+  }
+  chunk.imageData = img;
+
+  // Also create a scaled canvas for efficient drawImage
+  const offscreen = document.createElement("canvas");
+  offscreen.width = 16; offscreen.height = 16;
+  offscreen.getContext("2d").putImageData(img, 0, 0);
+  chunk.canvas = offscreen;
+}
+
+let drawScheduled = false;
+function requestDraw() {
+  if (!drawScheduled) {
+    drawScheduled = true;
+    requestAnimationFrame(draw);
+  }
+}
+
+function draw() {
+  drawScheduled = false;
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // Follow player
+  if (followPlayer) {
+    const p = players.find(p => p.name === followPlayer);
+    if (p) { camX = p.x; camZ = p.z; }
+  }
+
+  const chunkPx = 16 * zoom;
+
+  // Visible chunk range
+  const [tlX, tlZ] = screenToWorld(0, 0);
+  const [brX, brZ] = screenToWorld(w, h);
+  const minCX = Math.floor(Math.min(tlX, brX) / 16) - 1;
+  const maxCX = Math.floor(Math.max(tlX, brX) / 16) + 1;
+  const minCZ = Math.floor(Math.min(tlZ, brZ) / 16) - 1;
+  const maxCZ = Math.floor(Math.max(tlZ, brZ) / 16) + 1;
+
+  // Draw chunks
+  ctx.imageSmoothingEnabled = zoom < 4;
+  for (const [key, chunk] of chunkCache) {
+    const cx = chunk.cx, cz = chunk.cz;
+    if (cx < minCX || cx > maxCX || cz < minCZ || cz > maxCZ) continue;
+    if (!chunk.canvas) continue;
+
+    // Chunk world origin: (cx*16, cz*16). Top-left pixel of chunk on screen.
+    const [sx, sy] = worldToScreen(cx * 16, cz * 16 + 16);  // +16 because north edge
+    ctx.drawImage(chunk.canvas, sx, sy, chunkPx, chunkPx);
+  }
+
+  // Draw grid lines at higher zoom
+  if (zoom >= 2) {
+    ctx.strokeStyle = "rgba(255,255,255,0.07)";
+    ctx.lineWidth = 1;
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      const [sx] = worldToScreen(cx * 16, 0);
+      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
+    }
+    for (let cz = minCZ; cz <= maxCZ; cz++) {
+      const [, sy] = worldToScreen(0, cz * 16);
+      ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
+    }
+  }
+
+  // Draw players
+  for (const p of players) {
+    const [px, py] = worldToScreen(p.x, p.z);
+    if (px < -50 || px > w + 50 || py < -50 || py > h + 50) continue;
+    drawPlayerMarker(px, py, p.yaw, p.name, p.name === followPlayer);
+  }
+
+  // HUD
+  const [mx, mz] = screenToWorld(lastMouseX, lastMouseY);
+  hud.innerHTML = `Chunks: ${totalChunks}<br>` +
+    `Zoom: ${zoom.toFixed(1)}x<br>` +
+    `Pos: ${Math.floor(mx)}, ${Math.floor(mz)}`;
+}
+
+function drawPlayerMarker(sx, sy, yaw, name, isFollowed) {
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  // MC yaw: 0 = south (+Z), 90 = west (-X), 180 = north (-Z), 270 = east (+X)
+  // Screen angle: 0 = right (+X), PI/2 = down
+  // Convert: screen_angle = -(yaw + 180) in degrees, to radians
+  const angle = -(yaw + 180) * Math.PI / 180;
+
+  // Triangle pointing in yaw direction
+  const size = Math.max(8, zoom * 2);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(size, 0);
+  ctx.lineTo(-size * 0.6, -size * 0.5);
+  ctx.lineTo(-size * 0.6, size * 0.5);
+  ctx.closePath();
+  ctx.fillStyle = isFollowed ? "#ff4444" : "#44aaff";
+  ctx.fill();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+
+  // Name label
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "rgba(0,0,0,0.7)";
+  ctx.lineWidth = 3;
+  ctx.strokeText(name, sx, sy - size - 4);
+  ctx.fillText(name, sx, sy - size - 4);
+}
+
+// --- Mouse interaction ---
+let lastMouseX = 0, lastMouseY = 0;
+
+canvas.addEventListener("mousedown", e => {
+  if (e.button === 0) {
+    dragging = true;
+    dragStartX = e.clientX; dragStartY = e.clientY;
+    dragCamX = camX; dragCamZ = camZ;
+    followPlayer = null;  // Stop following on drag
+  }
+});
+
+window.addEventListener("mousemove", e => {
+  lastMouseX = e.clientX; lastMouseY = e.clientY;
+  if (dragging) {
+    camX = dragCamX - (e.clientX - dragStartX) / zoom;
+    camZ = dragCamZ + (e.clientY - dragStartY) / zoom;  // flip Y
+  }
+  updateTooltip(e.clientX, e.clientY);
+  requestDraw();
+});
+
+window.addEventListener("mouseup", () => { dragging = false; });
+
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.85 : 1.18;
+  const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+
+  // Zoom toward cursor
+  const [wx, wz] = screenToWorld(e.clientX, e.clientY);
+  zoom = newZoom;
+  // Adjust camera so world point under cursor stays put
+  camX = wx - (e.clientX - canvas.width / 2) / zoom;
+  camZ = wz + (e.clientY - canvas.height / 2) / zoom;
+
+  requestDraw();
+}, { passive: false });
+
+// Touch support
+let lastTouchDist = 0;
+canvas.addEventListener("touchstart", e => {
+  if (e.touches.length === 1) {
+    dragging = true;
+    dragStartX = e.touches[0].clientX; dragStartY = e.touches[0].clientY;
+    dragCamX = camX; dragCamZ = camZ;
+    followPlayer = null;
+  } else if (e.touches.length === 2) {
+    dragging = false;
+    lastTouchDist = Math.hypot(
+      e.touches[1].clientX - e.touches[0].clientX,
+      e.touches[1].clientY - e.touches[0].clientY
+    );
+  }
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener("touchmove", e => {
+  if (e.touches.length === 1 && dragging) {
+    camX = dragCamX - (e.touches[0].clientX - dragStartX) / zoom;
+    camZ = dragCamZ + (e.touches[0].clientY - dragStartY) / zoom;
+    requestDraw();
+  } else if (e.touches.length === 2) {
+    const dist = Math.hypot(
+      e.touches[1].clientX - e.touches[0].clientX,
+      e.touches[1].clientY - e.touches[0].clientY
+    );
+    if (lastTouchDist > 0) {
+      zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * (dist / lastTouchDist)));
+      requestDraw();
+    }
+    lastTouchDist = dist;
+  }
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener("touchend", () => { dragging = false; lastTouchDist = 0; });
+
+// --- Tooltip ---
+function updateTooltip(mx, my) {
+  const [wx, wz] = screenToWorld(mx, my);
+  const bx = Math.floor(wx), bz = Math.floor(wz);
+  const cx = Math.floor(bx / 16), cz = Math.floor(bz / 16);
+  const lx = ((bx % 16) + 16) % 16, lz = ((bz % 16) + 16) % 16;
+
+  const chunk = chunkCache.get(`${cx},${cz}`);
+  if (chunk) {
+    const idx = lx * 16 + lz;
+    const name = chunk.palette[chunk.data[idx]] || "air";
+    tooltip.textContent = `${name} (${bx}, ${bz})`;
+    tooltip.style.display = "block";
+    tooltip.style.left = (mx + 14) + "px";
+    tooltip.style.top = (my + 14) + "px";
+  } else {
+    tooltip.style.display = "none";
+  }
+}
+
+// --- Player list ---
+function updatePlayerList() {
+  playersList.innerHTML = players.map(p =>
+    `<div onclick="focusPlayer('${p.name.replace(/'/g, "\\'")}')" ` +
+    `style="${p.name === followPlayer ? 'color:#ff4444' : ''}"` +
+    `>${p.name} (${Math.floor(p.x)}, ${Math.floor(p.z)})</div>`
+  ).join("");
+}
+
+window.focusPlayer = function(name) {
+  if (followPlayer === name) {
+    followPlayer = null;
+  } else {
+    followPlayer = name;
+  }
+  updatePlayerList();
+  requestDraw();
+};
+
+// --- WebSocket ---
+function processChunk(c) {
+  const data = Uint8Array.from(atob(c.data), ch => ch.charCodeAt(0));
+  const chunk = { cx: c.cx, cz: c.cz, palette: c.palette, data, imageData: null, canvas: null };
+  const key = `${c.cx},${c.cz}`;
+  const isNew = !chunkCache.has(key);
+  chunkCache.set(key, chunk);
+  if (isNew) totalChunks++;
+  buildChunkImage(chunk);
+}
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  ws.onopen = () => {
+    statusEl.textContent = "Connected";
+    setTimeout(() => { statusEl.style.display = "none"; }, 2000);
+  };
+
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+
+    if (msg.type === "init" || msg.type === "update") {
+      if (msg.chunks) {
+        for (const c of msg.chunks) processChunk(c);
+      }
+      if (msg.players) {
+        players = msg.players;
+        updatePlayerList();
+        // Auto-follow first player on init
+        if (msg.type === "init" && players.length > 0 && !followPlayer) {
+          followPlayer = players[0].name;
+          updatePlayerList();
+        }
+      }
+      requestDraw();
+    }
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = "Disconnected. Reconnecting...";
+    statusEl.style.display = "block";
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => { ws.close(); };
+}
+
+// --- Init ---
+async function init() {
+  resize();
+
+  // Load block colors
+  try {
+    const resp = await fetch("/block_colors.json");
+    blockColors = await resp.json();
+  } catch (e) {
+    console.warn("Failed to load block colors:", e);
+  }
+
+  connect();
+}
+
+init();
+</script>
+</body>
+</html>

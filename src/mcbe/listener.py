@@ -33,13 +33,14 @@ from mcbe.proto.packet.resource_packs import (
     ResourcePackStack,
     ResourcePacksInfo,
 )
+from mcbe.proto.packet.resource_packs_ready_for_validation import ResourcePacksReadyForValidation
 from mcbe.proto.packet.set_local_player_as_initialised import SetLocalPlayerAsInitialised
 from mcbe.proto.pool import COMPRESSION_FLATE, Packet, client_pool
 
 logger = logging.getLogger(__name__)
 
 # Current protocol version.
-PROTOCOL_VERSION = 729
+PROTOCOL_VERSION = 944
 
 
 class ListenConfig:
@@ -54,7 +55,7 @@ class ListenConfig:
         compression_threshold: int = 256,
         flush_rate: float = 0.05,
         server_name: str = "mcbe Server",
-        game_version: str = "1.21.50",
+        game_version: str = "1.26.10",
     ) -> None:
         self.max_players = max_players
         self.authentication_disabled = authentication_disabled
@@ -199,6 +200,9 @@ class Listener:
 
         # 10. Wait for ResourcePackClientResponse (completed).
         resp = await self._expect(conn, ResourcePackClientResponse, timeout=10.0)
+
+        # 11. Wait for ResourcePacksReadyForValidation (protocol 944+).
+        await self._expect(conn, ResourcePacksReadyForValidation, timeout=10.0)
 
         # Note: StartGame and other game state packets would be sent here.
         # For now, we consider the handshake complete at this point.

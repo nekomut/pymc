@@ -42,7 +42,7 @@ async def test_dialer_listener_handshake():
                 identity="00000000-0000-0000-0000-000000000001",
             ),
             client_data=ClientData(
-                game_version="1.21.50",
+                game_version="1.26.10",
                 device_os=7,
             ),
             network=network,

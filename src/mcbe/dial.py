@@ -31,7 +31,8 @@ from mcbe.proto.packet import (
     ID_SERVER_TO_CLIENT_HANDSHAKE,
 )
 from mcbe.proto.packet.chunk_radius_updated import ChunkRadiusUpdated
-from mcbe.proto.packet.handshake import ClientToServerHandshake
+from mcbe.proto.packet.disconnect import Disconnect  # noqa: F401 — registers in pool
+from mcbe.proto.packet.handshake import ClientToServerHandshake, ServerToClientHandshake  # noqa: F401
 from mcbe.proto.packet.login import Login
 from mcbe.proto.packet.network_settings import NetworkSettings
 from mcbe.proto.packet.play_status import PlayStatus, STATUS_PLAYER_SPAWN
