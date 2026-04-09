@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 import aiohttp
 
+from mcbe.auth.minecraft import CURRENT_VERSION
 from mcbe.auth.xbox import XBLToken
 
 REALMS_API_BASE = "https://pocket.realms.minecraft.net"
@@ -151,7 +152,7 @@ class RealmsClient:
 
         headers: dict[str, str] = {
             "User-Agent": "MCPE/UWP",
-            "Client-Version": "1.21.0",
+            "Client-Version": CURRENT_VERSION,
         }
         self._xbl_token.set_auth_header(headers)
 
