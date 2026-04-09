@@ -420,12 +420,13 @@ def rasterize_polygons(polys: list[list], shape: tuple[int, int],
 def gen_maps(road_lines: list, water_polys: list, building_polys: list,
              shape: tuple[int, int], mc_x_start: int, mc_z_start: int,
              scale: float, *, debug: bool = False, no_fill: bool = False, fill: bool = False,
-             ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+             ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None, bool]:
     """道路・水域・建物からサーフェスマップ・建物マップ・橋マップを生成.
 
-    Returns: (surfacemap, buildingmap, bridgemap, centerlinemap, roadcatmap)
+    Returns: (surfacemap, buildingmap, bridgemap, centerlinemap, roadcatmap, fill_runaway)
         centerlinemap: debug=True のとき、道路中心線の boolean マップ (int8)。
         roadcatmap: rdCtg 0-3 の道路セルを示すマップ (int8)。
+        fill_runaway: 補填暴走が検出された場合 True。
     """
     ny, nx = shape
     surface = np.full(shape, SURFACE_GRASS, dtype=np.int8)
@@ -478,18 +479,15 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
             rasterize_to_mask(mc_coords, edge_22xx, val=True)
             rasterize_to_mask(mc_coords, all_road_lines, val=True)
         elif 2700 <= ft_code < 2710:
-            if rnkw == 0 and not fill:
-                # 細い道（rnkWidth=0）は領域充填せず線のみ
-                rasterize_to_mask(mc_coords, all_road_lines, val=True)
-            else:
-                rasterize_to_mask(mc_coords, marker_270x, val=True)
-                rasterize_to_mask(mc_coords, all_road_lines, val=True)
-                if rdctg in (0, 1, 3):
-                    rasterize_to_mask(mc_coords, marker_main_road, val=True)
+            rasterize_to_mask(mc_coords, marker_270x, val=True)
+            rasterize_to_mask(mc_coords, all_road_lines, val=True)
+            if rdctg in (0, 1, 3):
+                rasterize_to_mask(mc_coords, marker_main_road, val=True)
         elif 2700 <= ft_code < 2800:
             rasterize_to_mask(mc_coords, all_road_lines, val=True)
 
     # 道路面の生成
+    fill_runaway = False
     from scipy.ndimage import binary_dilation, convolve
     if no_fill:
         # 領域ラベリングをスキップ: ラスタライズした線のみ
@@ -508,6 +506,17 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
         road_filled |= marker_270x  # 270x 自体も含める
         # 細い道（271x-273x）は線のみ道路扱い
         road_filled |= all_road_lines
+
+        # 暴走チェック: 領域ペアリングの結果を線のみと比較
+        line_only = edge_22xx | marker_270x | all_road_lines
+        fill_only = road_filled & ~line_only
+        line_count = int(line_only.sum())
+        fill_ratio = int(fill_only.sum()) / max(line_count, 1)
+        if fill_ratio > 5.0:
+            # 暴走: 領域ペアリングを破棄し線のみにフォールバック
+            print(f"  ⚠ 補填暴走検出 (膨張率 {fill_ratio:.1f}x > 5.0x) → 線+穴埋めにフォールバック")
+            road_filled = line_only.copy()
+            fill_runaway = True
 
         # 穴埋め（通常道路近傍のみ）
         dist_to_270 = distance_transform_edt(~marker_270x)
@@ -625,7 +634,7 @@ def gen_maps(road_lines: list, water_polys: list, building_polys: list,
         for ft, cnt in sorted(ft_counts.items()):
             print(f"  ftCode {ft}: {cnt} セル")
 
-    return surface, buildingmap, bridgemap, centerlinemap, roadcatmap
+    return surface, buildingmap, bridgemap, centerlinemap, roadcatmap, fill_runaway
 
 # ---------------------------------------------------------------------------
 # 後処理
@@ -848,14 +857,25 @@ def main():
         blocks_per_deg_lat, blocks_per_deg_lon)
 
     # サーフェスマップ・建物マップ・橋マップ生成
-    surfacemap, buildingmap, bridgemap, centerlinemap, roadcatmap = gen_maps(
+    surfacemap, buildingmap, bridgemap, centerlinemap, roadcatmap, fill_runaway = gen_maps(
         road_lines, water_polys, building_polys,
         interp.shape, mc_x_start, mc_z_start, scale,
         debug=args.debug, no_fill=args.no_fill, fill=args.fill)
 
     # 道路平坦化
-    flatten_roads(interp, surfacemap, dem_data, dem_x, dem_z,
-                  mc_x_start, mc_z_start)
+    if fill_runaway:
+        # 暴走時: 道路セルの高さを隣接非道路セルから補間
+        road_mask = surfacemap == SURFACE_ROAD
+        if road_mask.any():
+            non_road = ~road_mask
+            _, nearest_idx = distance_transform_edt(
+                non_road, return_distances=True, return_indices=True)
+            interp[road_mask] = interp[nearest_idx[0][road_mask],
+                                       nearest_idx[1][road_mask]]
+            print(f"道路高さ補間 (暴走フォールバック): {int(road_mask.sum())} セル")
+    else:
+        flatten_roads(interp, surfacemap, dem_data, dem_x, dem_z,
+                      mc_x_start, mc_z_start)
 
     # 橋の元標高を保存
     bridge_mask = bridgemap.astype(bool) if bridgemap is not None else None

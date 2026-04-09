@@ -647,9 +647,12 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
 
         logger.info("全ボット接続完了!")
         if phase_name == phases[0][0]:  # 最初のフェーズのみ op を待つ
-            logger.info("BDS コンソールで以下を実行してから Enter を押してください:")
-            for n in bot_names:
-                logger.info("  /op %s", n)
+            if realms:
+                logger.info("準備しています...")
+            else:
+                logger.info("BDS コンソールで以下を実行してから Enter を押してください:")
+                for n in bot_names:
+                    logger.info("  /op %s", n)
             # await asyncio.to_thread(input, "")
             await asyncio.sleep(1)
 
@@ -663,8 +666,8 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
                 done = stats["done_rows"]
                 if done > 0:
                     eta = elapsed / done * (total - done)
-                    logger.info("=== [%s] 全体進捗: %d/%d 行 (%.1f%%) 残り %d秒 ===",
-                                phase_name, done, total, done / total * 100, int(eta))
+                    print(f"\r=== [{phase_name}] 全体進捗: {done}/{total} 行 ({done / total * 100:.1f}%) 残り {int(eta)}秒 ===",
+                          end="", flush=True)
 
         monitor = asyncio.create_task(progress_monitor(len(remaining)))
 
@@ -682,6 +685,7 @@ async def main(address: str, num_bots: int, *, reset: bool = False, no_road: boo
             await monitor
         except asyncio.CancelledError:
             pass
+        print()  # 進捗行の後に改行
 
         elapsed_total = time.monotonic() - t_start
         logger.info("=== [%s] 完了! %d 行, %.1f秒 ===", phase_name, len(remaining), elapsed_total)
