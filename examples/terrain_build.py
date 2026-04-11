@@ -217,6 +217,8 @@ async def bot_worker(
     log = logging.getLogger(f"bot.{name}")
 
     cmd_count = 0
+    batch_pending = 0
+    BATCH_SIZE = 16
     size_x = len(heightmap[0])
 
     def block_at(z: int, x: int) -> str:
@@ -226,71 +228,86 @@ async def bot_worker(
         return "stone"
 
     async def run_cmd(cmd: str) -> None:
-        nonlocal cmd_count
+        nonlocal cmd_count, batch_pending
         cmd_count += 1
+        batch_pending += 1
         await conn.write_packet(
             CommandRequest(
                 command_line=cmd,
                 command_origin=CommandOrigin(origin=ORIGIN_PLAYER),
                 internal=False,
-
             )
         )
-        await conn.flush()
-        await asyncio.sleep(0.01)
+        if batch_pending >= BATCH_SIZE:
+            await flush_batch()
+
+    async def flush_batch() -> None:
+        nonlocal batch_pending
+        if batch_pending > 0:
+            await conn.flush()
+            await asyncio.sleep(0.02)
+            batch_pending = 0
 
     try:
         for i, z in enumerate(rows):
             mc_z = z + z_offset
             if phase == "terrain":
-                # 草地・水域フェーズ: 全セルを草地または水域として配置
-                await run_cmd(f"/tp {name} {x_offset} {CLEAR_HEIGHT} {mc_z} -90 0")
+                # 草地・水域フェーズ: X 軸方向に同属性の列をまとめて fill
+                # RLE: 同じ (h_half, block) の連続列をグループ化
+                groups: list[tuple[int, int, int, str]] = []  # (x_start, x_end, h_half, block)
                 for x in range(size_x):
                     h_half = heightmap[z][x]
-                    mc_x = x + x_offset
-                    if h_half >= 0:
-                        h = h_half // 2       # フルブロック高
-                        slab = h_half % 2     # 1ならスラブあり
-                        block = block_at(z, x)
-                        # 草地・水域フェーズでは道路も草地として配置
-                        if block == "stone":
-                            block = "grass_block"
-                        # 水域はスラブ不要
-                        if block == "water":
-                            slab = 0
-                        top = h + slab
-                        await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z} -90 0")
-                        # 標高±3ブロックを air に置換
-                        air_bottom = max(0, h - 3)
-                        air_top = h + 3
-                        await run_cmd(f"/fill {mc_x} {air_bottom} {mc_z} {mc_x} {air_top} {mc_z} air")
-                        if block == "water" and h >= 9:
-                            # 水域: 上4=air, 5~7=water, 8~9=grass_block, 10以下=stone
-                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 9} {mc_z} stone")
-                            await run_cmd(f"/fill {mc_x} {h - 8} {mc_z} {mc_x} {h - 7} {mc_z} grass_block")
-                            await run_cmd(f"/fill {mc_x} {h - 6} {mc_z} {mc_x} {h - 4} {mc_z} water")
-                            await run_cmd(f"/fill {mc_x} {h - 3} {mc_z} {mc_x} {h} {mc_z} air")
-                        elif block == "grass_block" and h >= 4:
-                            # 草地: 上4=grass_block, 5以下=stone
-                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 4} {mc_z} stone")
-                            await run_cmd(f"/fill {mc_x} {h - 3} {mc_z} {mc_x} {h} {mc_z} grass_block")
-                        else:
-                            await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h} {mc_z} {block}")
-                        # ハーフブロック配置（草地のみ）
-                        if slab and block == "grass_block":
-                            await run_cmd(
-                                f"/setblock {mc_x} {h + 1} {mc_z} mossy_cobblestone_slab"
-                            )
-                        # 上空クリア
-                        clear_from = top + 1
-                        if clear_from <= CLEAR_HEIGHT:
-                            await run_cmd(f"/fill {mc_x} {clear_from} {mc_z} {mc_x} {CLEAR_HEIGHT} {mc_z} air")
+                    if h_half < 0:
+                        continue
+                    block = block_at(z, x)
+                    if block == "stone":
+                        block = "grass_block"
+                    if block == "water":
+                        h_half = (h_half // 2) * 2  # 水域はスラブなし
+                    if groups and groups[-1][2] == h_half and groups[-1][3] == block and x == groups[-1][1] + 1:
+                        groups[-1] = (groups[-1][0], x, h_half, block)
+                    else:
+                        groups.append((x, x, h_half, block))
+
+                tp_x = -1000  # 前回テレポート位置
+                for x_start, x_end, h_half, block in groups:
+                    h = h_half // 2
+                    slab = h_half % 2
+                    top = h + slab
+                    mc_x1 = x_start + x_offset
+                    mc_x2 = x_end + x_offset
+                    mid_x = (mc_x1 + mc_x2) // 2
+                    # テレポート: 前回位置から離れている場合のみ
+                    if abs(mid_x - tp_x) > 16:
+                        await run_cmd(f"/tp {name} {mid_x} {top + 5} {mc_z} -90 0")
+                        tp_x = mid_x
+                    # 標高周辺クリア
+                    air_bottom = max(0, h - 3)
+                    air_top = h + 3
+                    await run_cmd(f"/fill {mc_x1} {air_bottom} {mc_z} {mc_x2} {air_top} {mc_z} air")
+                    if block == "water" and h >= 9:
+                        await run_cmd(f"/fill {mc_x1} 0 {mc_z} {mc_x2} {h - 9} {mc_z} stone")
+                        await run_cmd(f"/fill {mc_x1} {h - 8} {mc_z} {mc_x2} {h - 7} {mc_z} grass_block")
+                        await run_cmd(f"/fill {mc_x1} {h - 6} {mc_z} {mc_x2} {h - 4} {mc_z} water")
+                        await run_cmd(f"/fill {mc_x1} {h - 3} {mc_z} {mc_x2} {h} {mc_z} air")
+                    elif block == "grass_block" and h >= 4:
+                        await run_cmd(f"/fill {mc_x1} 0 {mc_z} {mc_x2} {h - 4} {mc_z} stone")
+                        await run_cmd(f"/fill {mc_x1} {h - 3} {mc_z} {mc_x2} {h} {mc_z} grass_block")
+                    else:
+                        await run_cmd(f"/fill {mc_x1} 0 {mc_z} {mc_x2} {h} {mc_z} {block}")
+                    # ハーフブロック配置（草地のみ、グループ内全列）
+                    if slab and block == "grass_block":
+                        for sx in range(x_start, x_end + 1):
+                            await run_cmd(f"/setblock {sx + x_offset} {h + 1} {mc_z} mossy_cobblestone_slab")
+                    # 上空クリア
+                    clear_from = top + 1
+                    if clear_from <= CLEAR_HEIGHT:
+                        await run_cmd(f"/fill {mc_x1} {clear_from} {mc_z} {mc_x2} {CLEAR_HEIGHT} {mc_z} air")
             elif phase == "road":
-                # 道路・橋フェーズ: 道路セルを stone で上書き、橋セルも配置
-                h0 = (heightmap[z][0] // 2) + (heightmap[z][0] % 2)
-                await run_cmd(f"/tp {name} {x_offset} {h0 + 10} {mc_z} -90 0")
+                # 道路・橋フェーズ: X 軸方向にグループ化して fill
+                # RLE: 同じ (h_half, is_bridge, is_main) の連続セルをグループ化
+                road_groups: list[tuple[int, int, int, bool, bool]] = []  # (x_start, x_end, h_half, is_bridge, is_main)
                 for x in range(size_x):
-                    mc_x = x + x_offset
                     is_bridge = bridgemap is not None and bridgemap[z][x] > 0
                     is_road = block_at(z, x) == "stone"
                     if not (is_bridge or is_road):
@@ -301,58 +318,70 @@ async def bot_worker(
                         h_half = heightmap[z][x]
                         if h_half < 0:
                             continue
+                    is_main = roadcatmap is not None and roadcatmap[z][x] == 1
+                    if (road_groups and road_groups[-1][2] == h_half
+                            and road_groups[-1][3] == is_bridge and road_groups[-1][4] == is_main
+                            and x == road_groups[-1][1] + 1):
+                        road_groups[-1] = (road_groups[-1][0], x, h_half, is_bridge, is_main)
+                    else:
+                        road_groups.append((x, x, h_half, is_bridge, is_main))
+
+                tp_x = -1000
+                for x_start, x_end, h_half, is_bridge, is_main in road_groups:
                     h = h_half // 2
                     slab = h_half % 2
                     top = h + slab
-                    await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z} -90 0")
-                    # 標高±3ブロックを air に置換
+                    mc_x1 = x_start + x_offset
+                    mc_x2 = x_end + x_offset
+                    mid_x = (mc_x1 + mc_x2) // 2
+                    if abs(mid_x - tp_x) > 16:
+                        await run_cmd(f"/tp {name} {mid_x} {top + 5} {mc_z} -90 0")
+                        tp_x = mid_x
+                    # 標高周辺クリア
                     air_bottom = max(0, h - 3)
                     air_top = h + 3
-                    await run_cmd(f"/fill {mc_x} {air_bottom} {mc_z} {mc_x} {air_top} {mc_z} air")
-                    is_main = roadcatmap is not None and roadcatmap[z][x] == 1
+                    await run_cmd(f"/fill {mc_x1} {air_bottom} {mc_z} {mc_x2} {air_top} {mc_z} air")
                     top_block = "gray_concrete_powder" if is_main else "stone"
                     if is_bridge:
-                        # 橋: 上2ブロック (最上面=top_block, その下=stone)
                         if h >= 1:
-                            await run_cmd(f"/setblock {mc_x} {h - 1} {mc_z} stone")
-                            await run_cmd(f"/setblock {mc_x} {h} {mc_z} {top_block}")
+                            await run_cmd(f"/fill {mc_x1} {h - 1} {mc_z} {mc_x2} {h - 1} {mc_z} stone")
+                            await run_cmd(f"/fill {mc_x1} {h} {mc_z} {mc_x2} {h} {mc_z} {top_block}")
                         else:
-                            await run_cmd(f"/setblock {mc_x} 0 {mc_z} {top_block}")
+                            await run_cmd(f"/fill {mc_x1} 0 {mc_z} {mc_x2} 0 {mc_z} {top_block}")
                     else:
-                        # 道路: 最上面=top_block, その下=stone, 3~4=dirt, 5以下=stone
                         if h >= 5:
-                            await run_cmd(f"/fill {mc_x} {h - 3} {mc_z} {mc_x} {h - 2} {mc_z} dirt")
-                            await run_cmd(f"/fill {mc_x} {h - 1} {mc_z} {mc_x} {h - 1} {mc_z} stone")
-                            await run_cmd(f"/setblock {mc_x} {h} {mc_z} {top_block}")
+                            await run_cmd(f"/fill {mc_x1} {h - 3} {mc_z} {mc_x2} {h - 2} {mc_z} dirt")
+                            await run_cmd(f"/fill {mc_x1} {h - 1} {mc_z} {mc_x2} {h - 1} {mc_z} stone")
+                            await run_cmd(f"/fill {mc_x1} {h} {mc_z} {mc_x2} {h} {mc_z} {top_block}")
                         else:
                             if h >= 1:
-                                await run_cmd(f"/fill {mc_x} 0 {mc_z} {mc_x} {h - 1} {mc_z} stone")
-                            await run_cmd(f"/setblock {mc_x} {h} {mc_z} {top_block}")
-                    # ハーフブロック配置
+                                await run_cmd(f"/fill {mc_x1} 0 {mc_z} {mc_x2} {h - 1} {mc_z} stone")
+                            await run_cmd(f"/fill {mc_x1} {h} {mc_z} {mc_x2} {h} {mc_z} {top_block}")
                     if slab:
                         slab_block = "cobbled_deepslate_slab" if is_main else "normal_stone_slab"
-                        await run_cmd(f"/setblock {mc_x} {h + 1} {mc_z} {slab_block}")
+                        for sx in range(x_start, x_end + 1):
+                            await run_cmd(f"/setblock {sx + x_offset} {h + 1} {mc_z} {slab_block}")
             elif phase == "building" and buildingmap is not None:
-                # 建物配置（heightmap は半ブロック単位）
-                h0 = (heightmap[z][0] // 2) + (heightmap[z][0] % 2)
-                await run_cmd(f"/tp {name} {x_offset} {h0 + BUILDING_HEIGHT + 5} {mc_z} -90 0")
+                # 建物配置（heightmap は半ブロック単位）— テレポート削減
+                tp_x = -1000
                 for x in range(size_x):
                     if buildingmap[z][x] == 1:
                         h_half = heightmap[z][x]
                         mc_x = x + x_offset
                         if h_half >= 0:
-                            h = (h_half // 2) + (h_half % 2)  # スラブ込みの最上位Y
+                            h = (h_half // 2) + (h_half % 2)
                             y_bottom = h + 1
                             y_top = h + BUILDING_HEIGHT
-                            await run_cmd(f"/tp {name} {mc_x} {y_top + 5} {mc_z} -90 0")
+                            if abs(mc_x - tp_x) > 16:
+                                await run_cmd(f"/tp {name} {mc_x} {y_top + 5} {mc_z} -90 0")
+                                tp_x = mc_x
                             await run_cmd(f"/setblock {mc_x} {h} {mc_z} stone")
                             await run_cmd(
                                 f"/fill {mc_x} {y_bottom} {mc_z} {mc_x} {y_top} {mc_z} {BUILDING_BLOCK_TYPE}"
                             )
             elif phase == "centerline" and centerlinemap is not None:
                 # まず既存のレッドストーンを stone に置換、その後新しいレッドストーンを配置
-                h0 = (heightmap[z][0] // 2) + (heightmap[z][0] % 2)
-                await run_cmd(f"/tp {name} {x_offset} {h0 + 5} {mc_z} -90 0")
+                tp_x = -1000
                 for x in range(size_x):
                     mc_x = x + x_offset
                     if bridgemap is not None and bridgemap[z][x] > 0:
@@ -365,6 +394,9 @@ async def bot_worker(
                         h = h_half // 2
                         slab = h_half % 2
                         top = h + slab
+                    if abs(mc_x - tp_x) > 16:
+                        await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z} -90 0")
+                        tp_x = mc_x
                     for db in ("redstone_block", "glowstone", "redstone_lamp",
                               "pearlescent_froglight", "verdant_froglight",
                               "ochre_froglight", "lit_pumpkin", "sea_lantern"):
@@ -372,6 +404,7 @@ async def bot_worker(
                             f"/execute positioned {mc_x} {top} {mc_z} "
                             f"run fill {mc_x} {top} {mc_z} {mc_x} {top} {mc_z} stone replace {db}")
                 # レッドストーン / グロウストーン配置
+                tp_x = -1000
                 for x in range(size_x):
                     cv = centerlinemap[z][x]
                     if cv == 0:
@@ -391,9 +424,12 @@ async def bot_worker(
                              4: "pearlescent_froglight", 5: "verdant_froglight",
                              6: "ochre_froglight", 7: "lit_pumpkin",  # 222x
                              8: "sea_lantern"}.get(cv, "redstone_block")
-                    await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z} -90 0")
+                    if abs(mc_x - tp_x) > 16:
+                        await run_cmd(f"/tp {name} {mc_x} {top + 5} {mc_z} -90 0")
+                        tp_x = mc_x
                     await run_cmd(f"/setblock {mc_x} {top} {mc_z} {block}")
                     await run_cmd(f"/fill {mc_x} {top + 1} {mc_z} {mc_x} {top + 5} {mc_z} air")
+            await flush_batch()
             save_progress_line(progress_file, z)
             stats["done_rows"] += 1
             log.info("  [%s] 行完了: z=%d (mc: x=%d~%d, z=%d) (%d/%d) %d cmd",
