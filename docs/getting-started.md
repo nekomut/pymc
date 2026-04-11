@@ -9,7 +9,7 @@ graph TB
         dial["クライアント接続\nDialer"]
         listen["サーバー起動\nListener"]
         proxy["MITM プロキシ"]
-        proto["パケット読み書き\n214 パケット対応"]
+        proto["パケット読み書き\n215 パケット対応"]
     end
 
     subgraph transport["トランスポート"]
